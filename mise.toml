@@ -1,0 +1,10 @@
+[tools]
+node = "23"
+pre-commit = "latest"
+pnpm = "latest"
+
+[env]
+mise.file = ".env"
+
+[tasks]
+start = "pnpm i && pnpm dev"

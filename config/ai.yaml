@@ -1,0 +1,57 @@
+# AI Configuration
+# This file controls LLM model selection and generation parameters
+
+# Model Configuration
+model:
+  # Provider: anthropic, openai, etc.
+  provider: anthropic
+  # Model ID (examples: claude-3-5-sonnet-20241022, claude-3-opus-20240229, gpt-4-turbo)
+  id: claude-3-5-sonnet-20241022
+
+# Generation Parameters
+# Reference: https://v5.ai-sdk.dev/docs/ai-sdk-core/settings
+generation:
+  # Maximum number of tokens to generate
+  maxTokens: 4096
+
+  # Temperature: Controls randomness (0 = deterministic, higher = more random)
+  # Range: 0.0 - 2.0, recommended: 0.7 for creative tasks, 0.3 for analytical
+  temperature: 0.7
+
+  # Top-P (Nucleus Sampling): Only consider tokens with cumulative probability <= topP
+  # Range: 0.0 - 1.0, recommended: 0.9
+  topP: 0.9
+
+  # Top-K: Only sample from top K options for each token
+  # Set to null to disable, recommended: 40-100 for diverse output
+  topK: null
+
+  # Presence Penalty: Reduces likelihood of repeating topics already mentioned
+  # Range: -2.0 to 2.0, 0 = neutral
+  presencePenalty: 0
+
+  # Frequency Penalty: Reduces repeated use of identical words/phrases
+  # Range: -2.0 to 2.0, 0 = neutral
+  frequencyPenalty: 0
+
+  # Stop Sequences: Generation stops when these sequences appear
+  stopSequences: []
+
+  # Seed: Integer for deterministic results (if supported by model)
+  seed: null
+
+  # Max Retries: Number of retry attempts on failure
+  maxRetries: 2
+
+# Summary-specific overrides (optional)
+# Uncomment and modify to use different settings per summary type
+# summaryOverrides:
+#   weekly:
+#     temperature: 0.6
+#     maxTokens: 2048
+#   monthly:
+#     temperature: 0.7
+#     maxTokens: 3072
+#   yearly:
+#     temperature: 0.8
+#     maxTokens: 6144

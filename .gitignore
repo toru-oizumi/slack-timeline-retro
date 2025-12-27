@@ -1,0 +1,5 @@
+.serena
+.env
+node_modules
+dist
+.claude/settings.local.json
