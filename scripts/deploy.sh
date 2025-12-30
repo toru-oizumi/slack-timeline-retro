@@ -124,7 +124,8 @@ deploy_cloud_run() {
       --cpu 1 \
       --min-instances 0 \
       --max-instances 10 \
-      --timeout 3600
+      --timeout 3600 \
+      --no-cpu-throttling
   else
     # Build environment variables string
     local ENV_VARS="SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN},SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET},SLACK_CLIENT_ID=${SLACK_CLIENT_ID},SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET}"
@@ -184,6 +185,7 @@ deploy_cloud_run() {
       --min-instances 0 \
       --max-instances 10 \
       --timeout 3600 \
+      --no-cpu-throttling \
       --set-env-vars "$ENV_VARS"
   fi
 }

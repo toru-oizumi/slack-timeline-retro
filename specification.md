@@ -314,14 +314,17 @@ interface Summary {
 
 ### 11.1 Cloud Run設定
 
-| Setting | Value |
-|---------|-------|
-| CPU | 1 |
-| Memory | 512Mi |
-| Min instances | 0 |
-| Max instances | 10 |
-| Timeout | 3600s |
-| Concurrency | 80 |
+| Setting | Value | 備考 |
+|---------|-------|------|
+| CPU | 1 | |
+| Memory | 512Mi | |
+| Min instances | 0 | |
+| Max instances | 10 | |
+| Timeout | 3600s | 60分（年次サマリー対応） |
+| CPU throttling | disabled | バックグラウンド処理のため必須 |
+| Concurrency | 80 | |
+
+> **重要**: `--no-cpu-throttling` を設定しないと、HTTPレスポンス返却後にCPUがスロットリングされ、バックグラウンド処理が停止します。
 
 ### 11.2 Firestore設定
 
