@@ -120,6 +120,8 @@ After deployment, update Slack App URLs:
 - Slash Command Request URL: `https://your-service-url/slack/command`
 - OAuth Redirect URL: `https://your-service-url/oauth/callback`
 
+> **Important**: The deploy script sets `--min-instances 1` to keep background processing alive. This incurs ~$10-20/month in idle costs.
+
 #### Step 4: Test
 
 1. Run `/summarize-2025` in any Slack channel
@@ -316,6 +318,8 @@ export TARGET_YEAR=2025             # デフォルト: 現在の年
 デプロイ後、Slack AppのURLを更新:
 - Slash Command Request URL: `https://your-service-url/slack/command`
 - OAuth Redirect URL: `https://your-service-url/oauth/callback`
+
+> **重要**: デプロイスクリプトは `--min-instances 1` を設定し、バックグラウンド処理を維持します。アイドル時に約$10-20/月のコストが発生します。
 
 #### Step 4: テスト
 

@@ -68,10 +68,21 @@ const port = Number(process.env.PORT) || 8080;
 
 console.log(`Starting server on port ${port}...`);
 
-serve({
+const server = serve({
   fetch: app.fetch,
   port,
 });
+
+// Set explicit timeouts for long-running background tasks
+// Cloud Run timeout is 3600s, so we set server timeout to match
+const httpServer = server as {
+  timeout?: number;
+  keepAliveTimeout?: number;
+  headersTimeout?: number;
+};
+if (httpServer.timeout !== undefined) httpServer.timeout = 3600000;
+if (httpServer.keepAliveTimeout !== undefined) httpServer.keepAliveTimeout = 3600000;
+if (httpServer.headersTimeout !== undefined) httpServer.headersTimeout = 3610000;
 
 console.log(`Server is running on http://localhost:${port}`);
 

@@ -122,7 +122,7 @@ deploy_cloud_run() {
       --port 8080 \
       --memory 512Mi \
       --cpu 1 \
-      --min-instances 0 \
+      --min-instances 1 \
       --max-instances 10 \
       --timeout 3600 \
       --no-cpu-throttling
@@ -182,7 +182,7 @@ deploy_cloud_run() {
       --port 8080 \
       --memory 512Mi \
       --cpu 1 \
-      --min-instances 0 \
+      --min-instances 1 \
       --max-instances 10 \
       --timeout 3600 \
       --no-cpu-throttling \

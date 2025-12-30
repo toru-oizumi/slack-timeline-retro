@@ -183,7 +183,6 @@ slackRoutes.post('/slack/command', async (c) => {
         channelId: selfDmChannelId,
         text: startMessage,
       });
-
       console.log(`Thread created: channel=${selfDmChannelId}, thread_ts=${threadTs}`);
 
       // Refresh token expiration on use
