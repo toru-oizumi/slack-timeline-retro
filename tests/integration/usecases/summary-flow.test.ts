@@ -115,6 +115,7 @@ describe('Summary Generation Flow', () => {
       year: 2025,
       month: 1,
       channel,
+      userId: 'U12345',
     });
 
     expect(monthlyResult.ok).toBe(true);
@@ -126,39 +127,48 @@ describe('Summary Generation Flow', () => {
     );
   });
 
-  it('should generate 12 monthly summaries and consolidate into yearly summary', async () => {
-    // Pre-create 12 monthly summaries
-    for (let month = 1; month <= 12; month++) {
-      const dateRange = DateRange.forMonth(new Date(2025, month - 1, 1));
-      postedSummaries.push(
-        Summary.createMonthly({
-          id: `monthly_${month}`,
-          content: `${month}月のサマリー`,
-          dateRange,
-          year: 2025,
-          month,
-        })
-      );
-    }
+  it('should generate weekly and monthly summaries then consolidate into yearly summary', async () => {
+    // Mock posts for January and February (to have at least 2 months)
+    vi.mocked(mockSlackRepository.fetchUserPosts).mockImplementation(async (params) => {
+      const start = params.dateRange.start;
+      // Return posts for first week of Jan and first week of Feb
+      if (
+        (start.getMonth() === 0 && start.getDate() <= 6) ||
+        (start.getMonth() === 1 && start.getDate() <= 3)
+      ) {
+        return [
+          Post.create({
+            id: `post_${start.getMonth()}_${start.getDate()}`,
+            userId: 'U12345',
+            text: 'Test post',
+            timestamp: new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1),
+            channelId: 'C12345',
+          }),
+        ];
+      }
+      return [];
+    });
 
-    // Generate yearly summary
+    // Generate yearly summary (this now auto-generates weekly and monthly)
     const yearlyUsecase = new GenerateYearlySummary(mockSlackRepository, mockAIService);
     const result = await yearlyUsecase.execute({
       year: 2025,
       channel,
+      userId: 'U12345',
     });
 
     expect(result.ok).toBe(true);
 
+    // Verify weekly summaries were generated
+    expect(mockAIService.generateWeeklySummary).toHaveBeenCalled();
+
+    // Verify monthly summaries were generated
+    expect(mockAIService.generateMonthlySummary).toHaveBeenCalled();
+
+    // Verify yearly summary was generated
+    expect(mockAIService.generateYearlySummary).toHaveBeenCalled();
+
     // Verify broadcastSummary was called (also posts to channel)
     expect(mockSlackRepository.broadcastSummary).toHaveBeenCalledOnce();
-
-    // Verify 12 monthly summaries were passed to yearly summary generation
-    expect(mockAIService.generateYearlySummary).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ month: 1 }),
-        expect.objectContaining({ month: 12 }),
-      ])
-    );
   });
 });

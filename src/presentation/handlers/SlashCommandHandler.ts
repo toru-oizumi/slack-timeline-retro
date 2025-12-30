@@ -67,9 +67,9 @@ export class SlashCommandHandler {
       case 'weekly':
         return this.handleWeekly(payload.user_id, args.date ?? new Date(), channel, options);
       case 'monthly':
-        return this.handleMonthly(args.month ?? new Date().getMonth() + 1, channel, options);
+        return this.handleMonthly(payload.user_id, args.month ?? new Date().getMonth() + 1, channel, options);
       case 'yearly':
-        return this.handleYearly(channel, options);
+        return this.handleYearly(payload.user_id, channel, options);
       default:
         return {
           success: false,
@@ -142,6 +142,7 @@ export class SlashCommandHandler {
   }
 
   private async handleMonthly(
+    userId: string,
     month: number,
     channel: SlackChannel,
     options: CommandOptions
@@ -160,6 +161,7 @@ export class SlashCommandHandler {
       year: this.targetYear,
       month,
       channel,
+      userId,
     });
 
     if (!result.ok) {
@@ -178,6 +180,7 @@ export class SlashCommandHandler {
   }
 
   private async handleYearly(
+    userId: string,
     channel: SlackChannel,
     options: CommandOptions
   ): Promise<CommandResult> {
@@ -187,6 +190,7 @@ export class SlashCommandHandler {
     const result = await usecase.execute({
       year: this.targetYear,
       channel,
+      userId,
     });
 
     if (!result.ok) {

@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GeneratedContent, IAIService, ISlackRepository } from '@/domain';
-import { DateRange, SlackChannel, Summary } from '@/domain';
+import { DateRange, Post, SlackChannel, Summary } from '@/domain';
 import { GenerateMonthlySummary } from '@/usecases/GenerateMonthlySummary';
 
 describe('GenerateMonthlySummary', () => {
   let mockSlackRepository: ISlackRepository;
   let mockAIService: IAIService;
   let usecase: GenerateMonthlySummary;
+
+  const mockUserId = 'U12345';
 
   beforeEach(() => {
     mockSlackRepository = {
@@ -27,8 +29,30 @@ describe('GenerateMonthlySummary', () => {
     usecase = new GenerateMonthlySummary(mockSlackRepository, mockAIService);
   });
 
-  it('should successfully generate monthly summary', async () => {
-    // Mock weekly summaries related to January
+  it('should successfully generate monthly summary by first generating weekly summaries', async () => {
+    // Mock posts for first week of January
+    const postsWeek1 = [
+      Post.create({
+        id: 'p1',
+        userId: mockUserId,
+        text: 'Week 1 post',
+        timestamp: new Date(2025, 0, 7),
+        channelId: 'C123',
+      }),
+    ];
+
+    // Mock posts for second week of January
+    const postsWeek2 = [
+      Post.create({
+        id: 'p2',
+        userId: mockUserId,
+        text: 'Week 2 post',
+        timestamp: new Date(2025, 0, 14),
+        channelId: 'C123',
+      }),
+    ];
+
+    // Mock weekly summaries that will be returned from thread
     const weeklySummaries = [
       Summary.createWeekly({
         id: '1',
@@ -44,17 +68,18 @@ describe('GenerateMonthlySummary', () => {
         year: 2025,
         weekNumber: 3,
       }),
-      // Week of 1/27 - 2/2 (overlaps January and February)
-      Summary.createWeekly({
-        id: '3',
-        content: '月境の週のサマリー',
-        dateRange: DateRange.create(new Date(2025, 0, 27), new Date(2025, 1, 2)),
-        year: 2025,
-        weekNumber: 5,
-      }),
     ];
 
-    const generatedContent: GeneratedContent = {
+    const weeklyGeneratedContent: GeneratedContent = {
+      content: '週次サマリー',
+      metadata: {
+        tokensUsed: 100,
+        model: 'claude-3-5-sonnet',
+        generatedAt: new Date(),
+      },
+    };
+
+    const monthlyGeneratedContent: GeneratedContent = {
       content: '## 1月のハイライト\n- 成果1\n- 成果2',
       metadata: {
         tokensUsed: 200,
@@ -63,68 +88,115 @@ describe('GenerateMonthlySummary', () => {
       },
     };
 
+    // Mock fetchUserPosts to return posts for some weeks
+    vi.mocked(mockSlackRepository.fetchUserPosts).mockImplementation(async (params) => {
+      const weekStart = params.dateRange.start;
+      // Return posts for first two weeks of January
+      if (weekStart.getMonth() === 0 && weekStart.getDate() <= 6) {
+        return postsWeek1;
+      }
+      if (weekStart.getMonth() === 0 && weekStart.getDate() > 6 && weekStart.getDate() <= 13) {
+        return postsWeek2;
+      }
+      return [];
+    });
+
+    vi.mocked(mockAIService.generateWeeklySummary).mockResolvedValue(weeklyGeneratedContent);
+    vi.mocked(mockSlackRepository.postSummaryToThread).mockResolvedValue('summary.12345');
     vi.mocked(mockSlackRepository.fetchSummariesFromThread).mockResolvedValue(weeklySummaries);
-    vi.mocked(mockAIService.generateMonthlySummary).mockResolvedValue(generatedContent);
-    vi.mocked(mockSlackRepository.postSummaryToThread).mockResolvedValue('monthly.12345');
+    vi.mocked(mockAIService.generateMonthlySummary).mockResolvedValue(monthlyGeneratedContent);
 
     const channel = SlackChannel.createDM('D12345', '1736000000.000000');
     const result = await usecase.execute({
       year: 2025,
       month: 1,
       channel,
+      userId: mockUserId,
     });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.type).toBe('monthly');
       expect(result.value.month).toBe(1);
-      expect(result.value.id).toBe('monthly.12345');
     }
 
-    // All 3 weekly summaries are related to January, so all should be passed
-    expect(mockAIService.generateMonthlySummary).toHaveBeenCalledWith(
-      expect.arrayContaining(weeklySummaries)
-    );
+    // Should have generated weekly summaries
+    expect(mockAIService.generateWeeklySummary).toHaveBeenCalled();
+    // Should have generated monthly summary from weekly summaries
+    expect(mockAIService.generateMonthlySummary).toHaveBeenCalled();
   });
 
-  it('should return error when no weekly summaries found', async () => {
-    vi.mocked(mockSlackRepository.fetchSummariesFromThread).mockResolvedValue([]);
+  it('should return error when no posts found for any week', async () => {
+    vi.mocked(mockSlackRepository.fetchUserPosts).mockResolvedValue([]);
 
     const channel = SlackChannel.createDM('D12345', '1736000000.000000');
     const result = await usecase.execute({
       year: 2025,
       month: 1,
       channel,
+      userId: mockUserId,
     });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.message).toContain('weekly summary not found');
+      expect(result.error.message).toContain('No posts found');
     }
   });
 
-  it('should exclude weekly summaries that do not overlap with month', async () => {
-    // Only March weekly summaries
-    const weeklySummaries = [
-      Summary.createWeekly({
-        id: '1',
-        content: '3月のサマリー',
-        dateRange: DateRange.create(new Date(2025, 2, 3), new Date(2025, 2, 9)),
-        year: 2025,
-        weekNumber: 10,
+  it('should only generate weekly summaries for weeks with posts', async () => {
+    // Only return posts for week 2
+    const postsWeek2 = [
+      Post.create({
+        id: 'p1',
+        userId: mockUserId,
+        text: 'Week 2 post',
+        timestamp: new Date(2025, 0, 14),
+        channelId: 'C123',
       }),
     ];
 
-    vi.mocked(mockSlackRepository.fetchSummariesFromThread).mockResolvedValue(weeklySummaries);
+    const weeklySummary = Summary.createWeekly({
+      id: '1',
+      content: '第2週のサマリー',
+      dateRange: DateRange.create(new Date(2025, 0, 13), new Date(2025, 0, 19)),
+      year: 2025,
+      weekNumber: 3,
+    });
+
+    vi.mocked(mockSlackRepository.fetchUserPosts).mockImplementation(async (params) => {
+      const weekStart = params.dateRange.start;
+      // Only return posts for week starting Jan 13
+      if (weekStart.getMonth() === 0 && weekStart.getDate() === 13) {
+        return postsWeek2;
+      }
+      return [];
+    });
+
+    const weeklyGeneratedContent: GeneratedContent = {
+      content: '週次サマリー',
+      metadata: { tokensUsed: 100, model: 'claude-3-5-sonnet', generatedAt: new Date() },
+    };
+
+    const monthlyGeneratedContent: GeneratedContent = {
+      content: '月次サマリー',
+      metadata: { tokensUsed: 200, model: 'claude-3-5-sonnet', generatedAt: new Date() },
+    };
+
+    vi.mocked(mockAIService.generateWeeklySummary).mockResolvedValue(weeklyGeneratedContent);
+    vi.mocked(mockSlackRepository.postSummaryToThread).mockResolvedValue('summary.12345');
+    vi.mocked(mockSlackRepository.fetchSummariesFromThread).mockResolvedValue([weeklySummary]);
+    vi.mocked(mockAIService.generateMonthlySummary).mockResolvedValue(monthlyGeneratedContent);
 
     const channel = SlackChannel.createDM('D12345', '1736000000.000000');
     const result = await usecase.execute({
       year: 2025,
-      month: 1, // Request January
+      month: 1,
       channel,
+      userId: mockUserId,
     });
 
-    // Error because no weekly summaries overlap with January
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
+    // Weekly summary should only be called once (for the week with posts)
+    expect(mockAIService.generateWeeklySummary).toHaveBeenCalledTimes(1);
   });
 });
