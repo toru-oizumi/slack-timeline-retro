@@ -124,7 +124,7 @@ deploy_cloud_run() {
       --cpu 1 \
       --min-instances 0 \
       --max-instances 10 \
-      --timeout 300
+      --timeout 3600
   else
     # Build environment variables string
     local ENV_VARS="SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN},SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET},SLACK_CLIENT_ID=${SLACK_CLIENT_ID},SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET}"
@@ -149,6 +149,30 @@ deploy_cloud_run() {
       ENV_VARS="${ENV_VARS},INCLUDE_PRIVATE_CHANNELS=${INCLUDE_PRIVATE_CHANNELS}"
     fi
 
+    if [ -n "${AI_MODEL:-}" ]; then
+      ENV_VARS="${ENV_VARS},AI_MODEL=${AI_MODEL}"
+    fi
+
+    if [ -n "${AI_MAX_TOKENS:-}" ]; then
+      ENV_VARS="${ENV_VARS},AI_MAX_TOKENS=${AI_MAX_TOKENS}"
+    fi
+
+    if [ -n "${INCLUDE_CHANNELS:-}" ]; then
+      ENV_VARS="${ENV_VARS},INCLUDE_CHANNELS=${INCLUDE_CHANNELS}"
+    fi
+
+    if [ -n "${EXCLUDE_CHANNELS:-}" ]; then
+      ENV_VARS="${ENV_VARS},EXCLUDE_CHANNELS=${EXCLUDE_CHANNELS}"
+    fi
+
+    if [ -n "${INCLUDE_DIRECT_MESSAGES:-}" ]; then
+      ENV_VARS="${ENV_VARS},INCLUDE_DIRECT_MESSAGES=${INCLUDE_DIRECT_MESSAGES}"
+    fi
+
+    if [ -n "${INCLUDE_GROUP_MESSAGES:-}" ]; then
+      ENV_VARS="${ENV_VARS},INCLUDE_GROUP_MESSAGES=${INCLUDE_GROUP_MESSAGES}"
+    fi
+
     gcloud run deploy "$SERVICE_NAME" \
       --image "$IMAGE_URI" \
       --region "$REGION" \
@@ -159,7 +183,7 @@ deploy_cloud_run() {
       --cpu 1 \
       --min-instances 0 \
       --max-instances 10 \
-      --timeout 300 \
+      --timeout 3600 \
       --set-env-vars "$ENV_VARS"
   fi
 }
