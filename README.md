@@ -1,19 +1,25 @@
 # slack-timeline-retro
 
+[English](#english) | [日本語](#日本語)
+
+---
+
+## English
+
 > AI-powered hierarchical activity summarizer for Slack.
 
-Slack上の自分自身の発言ログをAIが解析し、「週次・月次・年次」の階層的なサマリーを自動生成するツールです。スラッシュコマンドを実行すると、自分自身へのDM（セルフDM）にサマリーが投稿されます。
+This tool analyzes your own Slack posts using AI and automatically generates hierarchical summaries (weekly, monthly, yearly). When you run the slash command, the summary is posted to your self-DM (notes to self).
 
-## Features
+### Features
 
-- **Hierarchical Summarization** - 週次サマリーを元に月次を、月次を元に年次を作成
-- **Self-DM Output** - サマリーはユーザー自身のセルフDMに投稿（他の人には見えない）
-- **User Token OAuth** - ユーザー自身のトークンでメッセージを取得・投稿
-- **Multi-Provider AI** - OpenAI (GPT) または Anthropic (Claude) を選択可能
-- **Locale Support** - 出力言語を英語 (en_US) または日本語 (ja_JP) で選択可能
-- **search.messages API** - スレッド返信を含むすべての投稿を効率的に取得
+- **Hierarchical Summarization** - Monthly summaries are built from weekly ones, yearly from monthly
+- **Self-DM Output** - Summaries are posted to your self-DM (private, only visible to you)
+- **User Token OAuth** - Messages are fetched using your own token
+- **Multi-Provider AI** - Choose between OpenAI (GPT) or Anthropic (Claude)
+- **Locale Support** - Output in English (en_US) or Japanese (ja_JP)
+- **search.messages API** - Efficiently fetches all posts including thread replies
 
-## Tech Stack
+### Tech Stack
 
 | Category | Technology |
 |----------|------------|
@@ -27,9 +33,7 @@ Slack上の自分自身の発言ログをAIが解析し、「週次・月次・�
 | Testing | Vitest |
 | Linter | Biome |
 
----
-
-## Architecture
+### Architecture
 
 ```
 ┌─────────────────┐     ┌──────────────────────┐
@@ -46,32 +50,27 @@ Slack上の自分自身の発言ログをAIが解析し、「週次・月次・�
 └─────────────────┘     └──────────────────┘     └──────────────────┘
 ```
 
-**フロー:**
-1. ユーザーがSlackコマンドを実行
-2. 初回は OAuth 認可フローへリダイレクト
-3. 認可済みの場合、セルフDMに開始メッセージを投稿
-4. バックグラウンドでメッセージ取得・AI要約・結果投稿
+**Flow:**
+1. User runs Slack command
+2. First-time users are redirected to OAuth authorization
+3. If authorized, a start message is posted to self-DM
+4. Background: fetch messages → AI summarization → post results
 
----
+### Quick Start
 
-## Step 1: Create Slack App
+#### Step 1: Create Slack App
 
-1. Go to [Slack API](https://api.slack.com/apps) and click **Create New App**
-2. Select **From scratch**
-3. Enter app name (e.g., `Timeline Retro`) and select workspace
+1. Go to [Slack API](https://api.slack.com/apps) → **Create New App** → **From scratch**
+2. Enter app name (e.g., `Timeline Retro`) and select workspace
 
-### Configure Bot Token Scopes
-
-Go to **OAuth & Permissions** → **Bot Token Scopes** and add:
+**Bot Token Scopes** (OAuth & Permissions):
 
 | Scope | Purpose |
 |-------|---------|
 | `commands` | Slash commands |
 | `im:write` | Open DM channels |
 
-### Configure User Token Scopes
-
-Go to **OAuth & Permissions** → **User Token Scopes** and add:
+**User Token Scopes** (OAuth & Permissions):
 
 | Scope | Purpose |
 |-------|---------|
@@ -83,17 +82,7 @@ Go to **OAuth & Permissions** → **User Token Scopes** and add:
 | `im:write` | Open self-DM channel |
 | `im:history` | Read self-DM thread for existing summaries |
 
-### Configure OAuth Redirect URL
-
-Go to **OAuth & Permissions** → **Redirect URLs** and add:
-
-```
-https://your-cloud-run-url/oauth/callback
-```
-
-### Create Slash Command
-
-Go to **Slash Commands** → **Create New Command**:
+**Slash Command** (Slash Commands → Create New Command):
 
 | Field | Value |
 |-------|-------|
@@ -101,43 +90,13 @@ Go to **Slash Commands** → **Create New Command**:
 | Request URL | `https://your-cloud-run-url/slack/command` |
 | Description | Generate activity summaries |
 
-> **Note**: Set the Request URL after deploying (Step 2)
-
-### Install to Workspace
-
-Click **Install to Workspace** and authorize the app.
-
-### Get Credentials
-
-Copy these values:
-
-| Credential | Location |
-|------------|----------|
-| **Bot Token** | OAuth & Permissions → Bot User OAuth Token (`xoxb-...`) |
-| **Client ID** | Basic Information → App Credentials → Client ID |
-| **Client Secret** | Basic Information → App Credentials → Client Secret |
-| **Signing Secret** | Basic Information → App Credentials → Signing Secret |
-
----
-
-## Step 2: Setup Firestore
+#### Step 2: Setup Firestore
 
 1. Enable Firestore API in your GCP project
 2. Create a Firestore database (Native mode)
 3. The app will automatically create the `user_tokens` collection
 
----
-
-## Step 3: Deploy to Google Cloud Run
-
-### Prerequisites
-
-- [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) configured
-- [Docker](https://docs.docker.com/get-docker/) installed
-- GCP Project with billing enabled
-- Firestore database created
-
-### Quick Deploy (Recommended)
+#### Step 3: Deploy to Cloud Run
 
 ```bash
 # 1. Set required environment variables
@@ -148,84 +107,27 @@ export SLACK_CLIENT_SECRET=your-client-secret
 export SLACK_SIGNING_SECRET=your-signing-secret
 export ANTHROPIC_API_KEY=sk-ant-your-key  # or OPENAI_API_KEY
 
-# 2. Optional: Configure additional settings
+# 2. Optional settings
 export GCP_REGION=asia-northeast1   # Default
-export LOCALE=ja_JP                 # Default: en_US
+export LOCALE=en_US                 # Default: en_US
 export TARGET_YEAR=2025             # Default: current year
 
-# 3. Run deploy script
+# 3. Deploy
 ./scripts/deploy.sh
 ```
 
-The script will:
-1. Enable required GCP APIs (Cloud Run, Firestore)
-2. Create Artifact Registry repository
-3. Build and push Docker image
-4. Deploy to Cloud Run with environment variables
+After deployment, update Slack App URLs:
+- Slash Command Request URL: `https://your-service-url/slack/command`
+- OAuth Redirect URL: `https://your-service-url/oauth/callback`
 
-### Update Slack App URLs
+#### Step 4: Test
 
-After deployment, update the Slack App settings:
-
-1. **Slash Command Request URL**:
-   ```
-   https://slack-timeline-retro-xxxxx-an.a.run.app/slack/command
-   ```
-
-2. **OAuth Redirect URL**:
-   ```
-   https://slack-timeline-retro-xxxxx-an.a.run.app/oauth/callback
-   ```
-
----
-
-## Step 4: Test
-
-1. Run the command in any Slack channel:
-
-   ```text
-   /summarize-2025
-   ```
-
-2. If this is your first time, you'll see an authorization link - click to authorize
+1. Run `/summarize-2025` in any Slack channel
+2. First time: click the authorization link
 3. After authorization, run the command again
-4. The summary will be posted to your self-DM (notes to self)
+4. Check your self-DM for the summary
 
----
-
-## Environment Variables
-
-### Required
-
-| Variable | Description |
-|----------|-------------|
-| `SLACK_BOT_TOKEN` | Bot User OAuth Token (`xoxb-...`) |
-| `SLACK_CLIENT_ID` | Slack App Client ID |
-| `SLACK_CLIENT_SECRET` | Slack App Client Secret |
-| `SLACK_SIGNING_SECRET` | Signing Secret from Basic Information |
-| `OPENAI_API_KEY` | OpenAI API key (if using OpenAI) |
-| `ANTHROPIC_API_KEY` | Anthropic API key (if using Anthropic) |
-| `GCP_PROJECT_ID` | Google Cloud Project ID |
-
-### Optional
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AI_MODEL` | `gpt-4o-mini` / `claude-sonnet-4-5-20250929` | AI model to use |
-| `AI_MAX_TOKENS` | `4096` | Max output tokens |
-| `LOCALE` | `en_US` | Output language (`en_US` or `ja_JP`) |
-| `TARGET_YEAR` | Current year | Year to summarize |
-| `INCLUDE_CHANNELS` | (empty) | Comma-separated channel names to include |
-| `EXCLUDE_CHANNELS` | (empty) | Comma-separated channel names to exclude |
-| `INCLUDE_PRIVATE_CHANNELS` | `false` | Include private channels by default |
-| `INCLUDE_DIRECT_MESSAGES` | `false` | Include DMs in analysis |
-| `INCLUDE_GROUP_MESSAGES` | `false` | Include group DMs in analysis |
-
----
-
-## Usage
-
-Run these commands in any Slack channel:
+### Usage
 
 ```text
 /summarize-2025                       # Yearly summary (default)
@@ -241,7 +143,7 @@ Run these commands in any Slack channel:
 /summarize-2025 weekly 2025-01-08     # Summary for week containing Jan 8
 ```
 
-### Options
+#### Options
 
 | Option | Description |
 |--------|-------------|
@@ -249,43 +151,250 @@ Run these commands in any Slack channel:
 | `--dm` | Include direct messages |
 | `--group` | Include group direct messages |
 
-### Output Location
+### Environment Variables
 
-All summaries are posted to your **self-DM** (notes to self). This ensures your summaries are private and only visible to you.
+#### Required
+
+| Variable | Description |
+|----------|-------------|
+| `SLACK_BOT_TOKEN` | Bot User OAuth Token (`xoxb-...`) |
+| `SLACK_CLIENT_ID` | Slack App Client ID |
+| `SLACK_CLIENT_SECRET` | Slack App Client Secret |
+| `SLACK_SIGNING_SECRET` | Signing Secret from Basic Information |
+| `OPENAI_API_KEY` | OpenAI API key (if using OpenAI) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (if using Anthropic) |
+| `GCP_PROJECT_ID` | Google Cloud Project ID |
+
+#### Optional
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AI_MODEL` | `gpt-4o-mini` / `claude-sonnet-4-5-20250929` | AI model to use |
+| `AI_MAX_TOKENS` | `4096` | Max output tokens |
+| `LOCALE` | `en_US` | Output language (`en_US` or `ja_JP`) |
+| `TARGET_YEAR` | Current year | Year to summarize |
+| `INCLUDE_CHANNELS` | (empty) | Comma-separated channel names to include |
+| `EXCLUDE_CHANNELS` | (empty) | Comma-separated channel names to exclude |
+| `INCLUDE_PRIVATE_CHANNELS` | `false` | Include private channels by default |
+| `INCLUDE_DIRECT_MESSAGES` | `false` | Include DMs in analysis |
+| `INCLUDE_GROUP_MESSAGES` | `false` | Include group DMs in analysis |
+
+### Local Development
+
+```bash
+pnpm install          # Install dependencies
+cp .env.example .env  # Create local env file
+pnpm dev              # Start dev server
+pnpm test             # Run tests
+pnpm typecheck        # Type check
+pnpm check            # Lint and format
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "Authorization Required" | Click the authorization link and complete OAuth flow |
+| "Timeout" | Try monthly summaries first, or use `INCLUDE_CHANNELS` to reduce scope |
+| "No posts found" | Check `INCLUDE_CHANNELS`, try `--private` flag, or specify different date |
+| "Invalid signature" | Verify `SLACK_SIGNING_SECRET` is correct |
 
 ---
 
-## Local Development
+## 日本語
 
-```bash
-# Install dependencies
-pnpm install
+> Slack投稿をAIで解析し、階層的なサマリーを自動生成するツール
 
-# Create local env file
-cp .env.example .env
+Slack上の自分自身の発言ログをAIが解析し、「週次・月次・年次」の階層的なサマリーを自動生成します。スラッシュコマンドを実行すると、自分自身へのDM（セルフDM）にサマリーが投稿されます。
 
-# Start dev server
-pnpm dev
+### 特徴
 
-# Run tests
-pnpm test
+- **階層的サマリー** - 週次サマリーを元に月次を、月次を元に年次を作成
+- **セルフDM出力** - サマリーはユーザー自身のセルフDMに投稿（他の人には見えない）
+- **User Token OAuth** - ユーザー自身のトークンでメッセージを取得・投稿
+- **AI選択可能** - OpenAI (GPT) または Anthropic (Claude) を選択可能
+- **言語対応** - 出力言語を英語 (en_US) または日本語 (ja_JP) で選択可能
+- **search.messages API** - スレッド返信を含むすべての投稿を効率的に取得
 
-# Type check
-pnpm typecheck
+### 技術スタック
 
-# Lint and format
-pnpm check
+| カテゴリ | 技術 |
+|----------|------|
+| ランタイム | Google Cloud Run |
+| データベース | Firestore (Token Storage) |
+| フレームワーク | Hono |
+| Slack | @slack/web-api |
+| AI | Vercel AI SDK v5 + OpenAI/Anthropic |
+| バリデーション | Zod v4 |
+| コンテナ | Docker |
+| テスト | Vitest |
+| リンター | Biome |
+
+### アーキテクチャ
+
+```
+┌─────────────────┐     ┌──────────────────────┐
+│  Slack Command  │────▶│  Cloud Run           │
+│  /summarize-2025│     │  (Command Handler)   │
+└─────────────────┘     └──────────┬───────────┘
+                                   │
+         ┌─────────────────────────┼─────────────────────────┐
+         │                         │                         │
+         ▼                         ▼                         ▼
+┌─────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│  Firestore      │     │  Slack API       │     │  AI API          │
+│  (Token Store)  │     │  (User Token)    │     │  (OpenAI/Claude) │
+└─────────────────┘     └──────────────────┘     └──────────────────┘
 ```
 
-### Using Docker
+**処理フロー:**
+1. ユーザーがSlackコマンドを実行
+2. 初回は OAuth 認可フローへリダイレクト
+3. 認可済みの場合、セルフDMに開始メッセージを投稿
+4. バックグラウンドでメッセージ取得・AI要約・結果投稿
+
+### クイックスタート
+
+#### Step 1: Slack App作成
+
+1. [Slack API](https://api.slack.com/apps) → **Create New App** → **From scratch**
+2. アプリ名（例：`Timeline Retro`）を入力し、ワークスペースを選択
+
+**Bot Token Scopes** (OAuth & Permissions):
+
+| Scope | 用途 |
+|-------|------|
+| `commands` | スラッシュコマンド |
+| `im:write` | DMチャンネルを開く |
+
+**User Token Scopes** (OAuth & Permissions):
+
+| Scope | 用途 |
+|-------|------|
+| `search:read` | メッセージ検索（スレッド返信含む） |
+| `channels:read` | パブリックチャンネル一覧 |
+| `groups:read` | プライベートチャンネル一覧 |
+| `users:read` | ユーザー情報取得 |
+| `chat:write` | セルフDMへの投稿 |
+| `im:write` | セルフDMチャンネルを開く |
+| `im:history` | セルフDMスレッドの読み取り |
+
+**Slash Command** (Slash Commands → Create New Command):
+
+| フィールド | 値 |
+|------------|-----|
+| Command | `/summarize-2025` |
+| Request URL | `https://your-cloud-run-url/slack/command` |
+| Description | Generate activity summaries |
+
+#### Step 2: Firestore設定
+
+1. GCPプロジェクトでFirestore APIを有効化
+2. Firestoreデータベースを作成（Nativeモード）
+3. `user_tokens` コレクションは自動作成されます
+
+#### Step 3: Cloud Runデプロイ
 
 ```bash
-# Build image
-pnpm docker:build
+# 1. 必須環境変数を設定
+export GCP_PROJECT_ID=your-project-id
+export SLACK_BOT_TOKEN=xoxb-your-token
+export SLACK_CLIENT_ID=your-client-id
+export SLACK_CLIENT_SECRET=your-client-secret
+export SLACK_SIGNING_SECRET=your-signing-secret
+export ANTHROPIC_API_KEY=sk-ant-your-key  # または OPENAI_API_KEY
 
-# Run container
-pnpm docker:run
+# 2. オプション設定
+export GCP_REGION=asia-northeast1   # デフォルト
+export LOCALE=ja_JP                 # デフォルト: en_US
+export TARGET_YEAR=2025             # デフォルト: 現在の年
+
+# 3. デプロイ実行
+./scripts/deploy.sh
 ```
+
+デプロイ後、Slack AppのURLを更新:
+- Slash Command Request URL: `https://your-service-url/slack/command`
+- OAuth Redirect URL: `https://your-service-url/oauth/callback`
+
+#### Step 4: テスト
+
+1. Slackの任意のチャンネルで `/summarize-2025` を実行
+2. 初回：認可リンクをクリック
+3. 認可後、再度コマンドを実行
+4. セルフDMでサマリーを確認
+
+### 使い方
+
+```text
+/summarize-2025                       # 年次サマリー（デフォルト）
+/summarize-2025 yearly                # 年次サマリー（明示的）
+/summarize-2025 yearly --private      # プライベートチャンネルも含む
+/summarize-2025 yearly --dm           # DMも含む
+/summarize-2025 yearly --group        # グループDMも含む
+/summarize-2025 yearly --private --dm --group  # すべて含む
+/summarize-2025 monthly 1             # 1月のサマリー
+/summarize-2025 monthly 1 --private   # プライベートチャンネルも含む
+/summarize-2025 weekly                # 今週のサマリー
+/summarize-2025 weekly --private      # プライベートチャンネルも含む
+/summarize-2025 weekly 2025-01-08     # 1/8を含む週のサマリー
+```
+
+#### オプション
+
+| オプション | 説明 |
+|------------|------|
+| `--private` | プライベートチャンネルを含める（メンバーである必要あり） |
+| `--dm` | DMを含める |
+| `--group` | グループDMを含める |
+
+### 環境変数
+
+#### 必須
+
+| 変数 | 説明 |
+|------|------|
+| `SLACK_BOT_TOKEN` | Bot User OAuth Token (`xoxb-...`) |
+| `SLACK_CLIENT_ID` | Slack App Client ID |
+| `SLACK_CLIENT_SECRET` | Slack App Client Secret |
+| `SLACK_SIGNING_SECRET` | Basic InformationのSigning Secret |
+| `OPENAI_API_KEY` | OpenAI APIキー（OpenAI使用時） |
+| `ANTHROPIC_API_KEY` | Anthropic APIキー（Anthropic使用時） |
+| `GCP_PROJECT_ID` | Google Cloud Project ID |
+
+#### オプション
+
+| 変数 | デフォルト | 説明 |
+|------|------------|------|
+| `AI_MODEL` | `gpt-4o-mini` / `claude-sonnet-4-5-20250929` | 使用するAIモデル |
+| `AI_MAX_TOKENS` | `4096` | 最大出力トークン数 |
+| `LOCALE` | `en_US` | 出力言語 (`en_US` or `ja_JP`) |
+| `TARGET_YEAR` | 現在の年 | 対象年 |
+| `INCLUDE_CHANNELS` | (空) | 対象チャンネル（カンマ区切り） |
+| `EXCLUDE_CHANNELS` | (空) | 除外チャンネル（カンマ区切り） |
+| `INCLUDE_PRIVATE_CHANNELS` | `false` | デフォルトでプライベートチャンネルを含める |
+| `INCLUDE_DIRECT_MESSAGES` | `false` | DMを分析対象に含める |
+| `INCLUDE_GROUP_MESSAGES` | `false` | グループDMを分析対象に含める |
+
+### ローカル開発
+
+```bash
+pnpm install          # 依存関係インストール
+cp .env.example .env  # ローカル環境ファイル作成
+pnpm dev              # 開発サーバー起動
+pnpm test             # テスト実行
+pnpm typecheck        # 型チェック
+pnpm check            # リント・フォーマット
+```
+
+### トラブルシューティング
+
+| 問題 | 解決策 |
+|------|--------|
+| "Authorization Required" | 認可リンクをクリックしてOAuthフローを完了 |
+| "Timeout" | まず月次サマリーを試す、または `INCLUDE_CHANNELS` でスコープを絞る |
+| "No posts found" | `INCLUDE_CHANNELS` を確認、`--private` フラグを試す、別の日付を指定 |
+| "Invalid signature" | `SLACK_SIGNING_SECRET` が正しいか確認 |
 
 ---
 
@@ -300,43 +409,6 @@ src/
 ├── shared/           # Shared utilities
 └── index.ts          # Cloud Run entry point
 ```
-
----
-
-## Troubleshooting
-
-### "Authorization Required"
-
-You need to authorize the app to access your Slack messages.
-
-**Solution**: Click the authorization link provided and complete the OAuth flow.
-
-### "Timeout waiting for response"
-
-Cloud Run timeout is set to 3600 seconds (60 minutes) for yearly summaries. If you still experience timeouts:
-1. Check Cloud Run logs for errors
-2. Try generating monthly summaries first: `/summarize-2025 monthly 1`
-3. Use channel filters to reduce scope: `INCLUDE_CHANNELS=project1,project2`
-
-### "No posts found for period"
-
-No posts found in the specified channels for the period.
-
-**Solutions**:
-1. Check `INCLUDE_CHANNELS` setting
-2. Specify a different date: `/summarize-2025 weekly 2025-12-01`
-3. Use `--private` flag if posts are in private channels
-
-### "Invalid signature"
-
-The Slack signature verification failed.
-
-**Solutions**:
-1. Verify `SLACK_SIGNING_SECRET` is correct
-2. Check if the secret is properly set in environment variables
-3. Ensure the request is coming from Slack
-
----
 
 ## License
 
