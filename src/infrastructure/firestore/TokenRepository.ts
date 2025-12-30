@@ -30,11 +30,7 @@ export class TokenRepository {
   /**
    * Save a user's OAuth token with TTL
    */
-  async saveToken(params: {
-    userId: string;
-    accessToken: string;
-    teamId: string;
-  }): Promise<void> {
+  async saveToken(params: { userId: string; accessToken: string; teamId: string }): Promise<void> {
     const { userId, accessToken, teamId } = params;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + TOKEN_TTL_MS);

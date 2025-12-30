@@ -34,7 +34,9 @@ function getOAuthUrl(clientId: string, redirectUri: string, state: string): stri
 /**
  * Get the correct protocol (handles Cloud Run's reverse proxy)
  */
-function getProtocol(c: { req: { header: (name: string) => string | undefined; url: string } }): string {
+function getProtocol(c: {
+  req: { header: (name: string) => string | undefined; url: string };
+}): string {
   // Cloud Run uses X-Forwarded-Proto header
   const forwardedProto = c.req.header('X-Forwarded-Proto');
   if (forwardedProto) {

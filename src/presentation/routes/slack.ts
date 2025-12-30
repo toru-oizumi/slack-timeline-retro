@@ -67,16 +67,23 @@ function runInBackground(fn: () => Promise<void>): void {
 
 /**
  * Parse command to get summary type and options
+ * Defaults to 'yearly' if no type specified
  */
 function parseCommand(text: string): {
-  type: 'weekly' | 'monthly' | 'yearly' | undefined;
+  type: 'weekly' | 'monthly' | 'yearly';
   includePrivate: boolean;
 } {
   const parts = text.trim().split(/\s+/);
   const lowerParts = parts.map((p) => p.toLowerCase());
   const includePrivate = lowerParts.includes('--private');
   const nonFlagParts = lowerParts.filter((p) => !p.startsWith('--'));
-  const type = nonFlagParts[0] as 'weekly' | 'monthly' | 'yearly' | undefined;
+  const firstArg = nonFlagParts[0];
+
+  // Default to yearly if no type specified or empty
+  const type =
+    firstArg && ['weekly', 'monthly', 'yearly'].includes(firstArg)
+      ? (firstArg as 'weekly' | 'monthly' | 'yearly')
+      : 'yearly';
 
   return { type, includePrivate };
 }
@@ -116,14 +123,8 @@ slackRoutes.post('/slack/command', async (c) => {
     trigger_id: formData.trigger_id ?? '',
   };
 
-  // Parse command to get type
+  // Parse command to get type (defaults to yearly if not specified)
   const { type, includePrivate } = parseCommand(payload.text);
-  if (!type || !['weekly', 'monthly', 'yearly'].includes(type)) {
-    return c.json({
-      response_type: 'ephemeral',
-      text: '❌ Usage: /summarize-2025 [weekly|monthly|yearly] [--private] [options]',
-    });
-  }
 
   const botToken = env.SLACK_BOT_TOKEN;
   const userId = payload.user_id;
@@ -146,14 +147,21 @@ slackRoutes.post('/slack/command', async (c) => {
   }
 
   const userToken = userTokenData.accessToken;
-  console.log(`User token found for: ${userId}, expires at: ${userTokenData.expiresAt.toISOString()}`);
+  console.log(
+    `User token found for: ${userId}, expires at: ${userTokenData.expiresAt.toISOString()}`
+  );
 
   // Return response immediately to avoid Slack timeout (3 seconds)
   // All Slack API calls happen in the background
   runInBackground(async () => {
     try {
       // Create SlackRepository with user token (for self-DM posting)
-      const slackRepository = new SlackRepository(botToken, defaultWorkspaceConfig, 'en_US', userToken);
+      const slackRepository = new SlackRepository(
+        botToken,
+        defaultWorkspaceConfig,
+        'en_US',
+        userToken
+      );
 
       // Open self-DM channel (user's own DM with themselves)
       const selfDmChannelId = await slackRepository.openSelfDMChannel(userId);

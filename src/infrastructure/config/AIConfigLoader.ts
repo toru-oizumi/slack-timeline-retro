@@ -356,7 +356,6 @@ export function getPromptTemplates(locale: Locale): PromptTemplates {
   switch (locale) {
     case 'ja_JP':
       return japanesePromptTemplates;
-    case 'en_US':
     default:
       return englishPromptTemplates;
   }

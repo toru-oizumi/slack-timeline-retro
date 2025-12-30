@@ -44,7 +44,7 @@ export class SlashCommandHandler {
 
   /**
    * Create SlackRepository with command-specific options
-   * Uses user token for reading and bot token for posting
+   * Uses user token for reading messages and posting to self-DM
    */
   private createSlackRepository(options: CommandOptions): SlackRepository {
     const workspaceConfig: WorkspaceConfig = {
@@ -64,7 +64,7 @@ export class SlashCommandHandler {
    * Parse and execute command
    */
   async handle(payload: SlackCommandPayload): Promise<CommandResult> {
-    // Note: channel_id is now always a DM channel opened by the route handler
+    // Note: channel_id is the self-DM channel opened by the route handler
     const channel = SlackChannel.create(payload.channel_id, payload.threadTs);
     const args = this.parseCommand(payload.text);
     const options: CommandOptions = {
@@ -75,14 +75,14 @@ export class SlashCommandHandler {
       case 'weekly':
         return this.handleWeekly(payload.user_id, args.date ?? new Date(), channel, options);
       case 'monthly':
-        return this.handleMonthly(payload.user_id, args.month ?? new Date().getMonth() + 1, channel, options);
-      case 'yearly':
-        return this.handleYearly(payload.user_id, channel, options);
+        return this.handleMonthly(
+          payload.user_id,
+          args.month ?? new Date().getMonth() + 1,
+          channel,
+          options
+        );
       default:
-        return {
-          success: false,
-          message: 'Usage: /summarize-2025 [weekly|monthly|yearly] [--private] [options]',
-        };
+        return this.handleYearly(payload.user_id, channel, options);
     }
   }
 
@@ -110,11 +110,9 @@ export class SlashCommandHandler {
         const month = monthStr ? Number.parseInt(monthStr, 10) : new Date().getMonth() + 1;
         return { type: 'monthly', month, includePrivate };
       }
-      case 'yearly':
-        return { type: 'yearly', includePrivate };
       default:
-        // Default to weekly summary for current week
-        return { type: 'weekly', date: new Date(), includePrivate };
+        // Default to yearly summary
+        return { type: 'yearly', includePrivate };
     }
   }
 

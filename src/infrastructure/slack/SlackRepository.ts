@@ -26,7 +26,8 @@ const RATE_LIMIT_DELAY_MS = 1500; // 1.5 seconds between API calls
 
 /**
  * Slack repository implementation
- * Uses bot token for posting and user token for reading
+ * Uses user token for reading messages (search.messages) and posting to self-DM
+ * Bot token is used as fallback if user token is not provided
  */
 export class SlackRepository implements ISlackRepository {
   private readonly botClient: WebClient;
@@ -73,7 +74,9 @@ export class SlackRepository implements ISlackRepository {
     if (channelIds && channelIds.length > 0) {
       const channelSet = new Set(channelIds);
       const filteredPosts = posts.filter((post) => channelSet.has(post.channelId));
-      console.log(`Filtered to ${filteredPosts.length} posts from ${channelIds.length} specified channels`);
+      console.log(
+        `Filtered to ${filteredPosts.length} posts from ${channelIds.length} specified channels`
+      );
       return filteredPosts;
     }
 
@@ -81,7 +84,9 @@ export class SlackRepository implements ISlackRepository {
     const filteredChannelIds = await this.getFilteredChannelIds(userId);
     const channelSet = new Set(filteredChannelIds);
     const filteredPosts = posts.filter((post) => channelSet.has(post.channelId));
-    console.log(`Filtered to ${filteredPosts.length} posts from ${filteredChannelIds.length} allowed channels`);
+    console.log(
+      `Filtered to ${filteredPosts.length} posts from ${filteredChannelIds.length} allowed channels`
+    );
 
     return filteredPosts;
   }
@@ -227,43 +232,26 @@ export class SlackRepository implements ISlackRepository {
     const summaries: Summary[] = [];
     const messages = response.messages ?? [];
 
-    console.log(`fetchSummariesFromThread: Found ${messages.length} messages in thread`);
-
     for (const msg of messages) {
       if (!msg.text || !msg.ts) continue;
 
       const parsedType = parseSummaryType(msg.text);
-      if (parsedType !== type) {
-        // Log first 100 chars to help debug - escape newlines
-        const escaped = msg.text.substring(0, 100).replace(/\n/g, '\\n');
-        console.log(`  Skipping message (type mismatch): ${escaped}...`);
-        continue;
-      }
+      if (parsedType !== type) continue;
 
       // Year validation
-      if (!msg.text.includes(`_${year}]`)) {
-        console.log(`  Skipping message (year mismatch): expected ${year}`);
-        continue;
-      }
+      if (!msg.text.includes(`_${year}]`)) continue;
 
       const parsed = this.parser.parseSummaryMessage(msg.text, msg.ts, year);
       if (parsed) {
-        console.log(`  Parsed summary: ${parsed.dateRange.format()}`);
         summaries.push(parsed);
-      } else {
-        // Log why parsing failed - escape newlines for Cloud Logging
-        const escaped = msg.text.substring(0, 300).replace(/\n/g, '\\n');
-        console.log(`  Failed to parse message: ${escaped}`);
       }
     }
-
-    console.log(`fetchSummariesFromThread: Returning ${summaries.length} summaries`);
     return summaries;
   }
 
   /**
-   * Open a DM channel with a user (Bot to User)
-   * Returns the channel ID that the bot can use to send messages
+   * Open a DM channel with a user using bot token
+   * Note: This is not used in the current flow - see openSelfDMChannel instead
    */
   async openDMChannel(userId: string): Promise<string> {
     const response = await this.botClient.conversations.open({
@@ -297,7 +285,11 @@ export class SlackRepository implements ISlackRepository {
    * Post a message to self-DM using user token
    * Returns the message ts
    */
-  async postToSelfDM(params: { channelId: string; text: string; threadTs?: string }): Promise<string> {
+  async postToSelfDM(params: {
+    channelId: string;
+    text: string;
+    threadTs?: string;
+  }): Promise<string> {
     const { channelId, text, threadTs } = params;
 
     const response = await this.userClient.chat.postMessage({
