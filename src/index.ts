@@ -9,6 +9,14 @@ import type { Env } from '@/shared/types';
 
 const app = new Hono<{ Bindings: Env }>();
 
+// Inject process.env as Hono bindings for Node.js compatibility
+app.use('*', async (c, next) => {
+  // Cast process.env to Env type for Hono context
+  const env = process.env as unknown as Env;
+  c.env = env;
+  await next();
+});
+
 // Middleware
 app.use('*', cors());
 app.use('*', prettyJSON());

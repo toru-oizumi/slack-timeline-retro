@@ -40,6 +40,8 @@ export interface SlackCommandPayload {
   text: string;
   response_url: string;
   trigger_id: string;
+  /** Thread timestamp for posting replies (set by route handler) */
+  threadTs?: string;
 }
 
 /**

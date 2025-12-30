@@ -180,6 +180,42 @@ export class SlackRepository implements ISlackRepository {
     return summaries;
   }
 
+  /**
+   * Open a DM channel with a user
+   * Returns the channel ID that the bot can use to send messages
+   */
+  async openDMChannel(userId: string): Promise<string> {
+    const response = await this.client.conversations.open({
+      users: userId,
+    });
+
+    if (!response.ok || !response.channel?.id) {
+      throw new SlackAPIError('conversations.open failed', response.error);
+    }
+
+    return response.channel.id;
+  }
+
+  /**
+   * Post a start message to create a new thread
+   * Returns the message ts which can be used as thread_ts for subsequent replies
+   */
+  async postStartMessage(params: { channelId: string; text: string }): Promise<string> {
+    const { channelId, text } = params;
+
+    const response = await this.client.chat.postMessage({
+      channel: channelId,
+      text,
+      mrkdwn: true,
+    });
+
+    if (!response.ok || !response.ts) {
+      throw new SlackAPIError('chat.postMessage failed', response.error);
+    }
+
+    return response.ts;
+  }
+
   async postSummaryToThread(params: { channel: SlackChannel; summary: Summary }): Promise<string> {
     const { channel, summary } = params;
     const localeStrings = getLocaleStrings(this.locale);

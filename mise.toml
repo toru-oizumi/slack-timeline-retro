@@ -2,6 +2,7 @@
 node = "23"
 pre-commit = "latest"
 pnpm = "latest"
+gcloud = "latest"
 
 [env]
 mise.file = ".env"

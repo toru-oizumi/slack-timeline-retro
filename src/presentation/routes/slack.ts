@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
+import { SlackRepository } from '@/infrastructure/slack';
+import { defaultWorkspaceConfig } from '@/shared/config';
 import { AuthenticationError } from '@/shared/errors';
 import type { Env, SlackCommandPayload } from '@/shared/types';
 import { SlashCommandHandler } from '../handlers/SlashCommandHandler';
@@ -63,6 +65,22 @@ function runInBackground(fn: () => Promise<void>): void {
 }
 
 /**
+ * Parse command to get summary type and options
+ */
+function parseCommand(text: string): {
+  type: 'weekly' | 'monthly' | 'yearly' | undefined;
+  includePrivate: boolean;
+} {
+  const parts = text.trim().split(/\s+/);
+  const lowerParts = parts.map((p) => p.toLowerCase());
+  const includePrivate = lowerParts.includes('--private');
+  const nonFlagParts = lowerParts.filter((p) => !p.startsWith('--'));
+  const type = nonFlagParts[0] as 'weekly' | 'monthly' | 'yearly' | undefined;
+
+  return { type, includePrivate };
+}
+
+/**
  * Slack slash command endpoint
  */
 slackRoutes.post('/slack/command', async (c) => {
@@ -97,42 +115,73 @@ slackRoutes.post('/slack/command', async (c) => {
     trigger_id: formData.trigger_id ?? '',
   };
 
-  // Run actual processing in background
-  // This allows us to respond within Slack's 3-second timeout
+  // Parse command to get type
+  const { type, includePrivate } = parseCommand(payload.text);
+  if (!type || !['weekly', 'monthly', 'yearly'].includes(type)) {
+    return c.json({
+      response_type: 'ephemeral',
+      text: '❌ Usage: /summarize-2025 [weekly|monthly|yearly] [--private] [options]',
+    });
+  }
+
+  // Return response immediately to avoid Slack timeout (3 seconds)
+  // All Slack API calls happen in the background
+  const botToken = env.SLACK_BOT_TOKEN;
+  const userId = payload.user_id;
+
   runInBackground(async () => {
     try {
-      const handler = new SlashCommandHandler(env);
-      const result = await handler.handle(payload);
+      // Create SlackRepository for posting messages
+      const slackRepository = new SlackRepository(botToken, defaultWorkspaceConfig, 'en_US');
 
-      // Send result to response_url
-      await fetch(payload.response_url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          response_type: 'ephemeral',
+      // Open DM channel with the user (this ensures the bot can post messages)
+      const dmChannelId = await slackRepository.openDMChannel(userId);
+      console.log(`Opened DM channel: ${dmChannelId} for user: ${userId}`);
+
+      // Post start message to create thread
+      const startMessage = `🔄 *Generating ${type} summary...*\n_Please wait while I analyze your posts._${includePrivate ? '\n📁 Including private channels.' : ''}`;
+
+      const threadTs = await slackRepository.postStartMessage({
+        channelId: dmChannelId,
+        text: startMessage,
+      });
+
+      console.log(`Thread created: channel=${dmChannelId}, thread_ts=${threadTs}`);
+
+      // Run the actual summary generation
+      try {
+        const handler = new SlashCommandHandler(env);
+        const result = await handler.handle({
+          ...payload,
+          channel_id: dmChannelId,
+          threadTs,
+        });
+
+        // Post completion message
+        await slackRepository.postStartMessage({
+          channelId: dmChannelId,
           text: result.success ? `✅ ${result.message}` : `❌ ${result.message}`,
-        }),
-      });
-    } catch (error) {
-      // Send error to response_url
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('SlashCommand error:', errorMessage);
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('SlashCommand error:', errorMessage);
 
-      await fetch(payload.response_url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          response_type: 'ephemeral',
+        await slackRepository.postStartMessage({
+          channelId: dmChannelId,
           text: `❌ Error: ${errorMessage}`,
-        }),
-      });
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Background task error:', errorMessage);
+      // Can't post to Slack if we failed to open DM channel
     }
   });
 
-  // Return immediate processing message
+  // Return immediate acknowledgment
   return c.json({
     response_type: 'ephemeral',
-    text: '🔄 Generating summary. Please wait...',
+    text: `🚀 Starting ${type} summary generation... Check your DMs with the bot!`,
   });
 });
 

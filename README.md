@@ -112,68 +112,75 @@ Copy these values:
 - [Docker](https://docs.docker.com/get-docker/) installed
 - GCP Project with billing enabled
 
-### Setup GCP Resources
+### Quick Deploy (Recommended)
 
 ```bash
-# 1. Set project
-gcloud config set project YOUR_PROJECT_ID
+# 1. Set required environment variables
+export GCP_PROJECT_ID=your-project-id
+export SLACK_BOT_TOKEN=xoxb-your-token
+export SLACK_SIGNING_SECRET=your-signing-secret
+export ANTHROPIC_API_KEY=sk-ant-your-key  # or OPENAI_API_KEY
 
-# 2. Enable required APIs
-gcloud services enable run.googleapis.com pubsub.googleapis.com secretmanager.googleapis.com
+# 2. Optional: Configure additional settings
+export GCP_REGION=asia-northeast1   # Default
+export LOCALE=ja_JP                 # Default: en_US
+export TARGET_YEAR=2025             # Default: current year
 
-# 3. Create Pub/Sub topic and subscription
-gcloud pubsub topics create summary-jobs
-gcloud pubsub subscriptions create summary-jobs-push \
-  --topic=summary-jobs \
-  --push-endpoint=https://YOUR_CLOUD_RUN_URL/jobs/process \
-  --ack-deadline=600
-
-# 4. Store secrets in Secret Manager
-echo -n "xoxb-your-token" | gcloud secrets create SLACK_BOT_TOKEN --data-file=-
-echo -n "your-signing-secret" | gcloud secrets create SLACK_SIGNING_SECRET --data-file=-
-echo -n "sk-your-openai-key" | gcloud secrets create OPENAI_API_KEY --data-file=-
+# 3. Run deploy script
+./scripts/deploy.sh
 ```
 
-### Build and Deploy
+The script will:
+1. Enable required GCP APIs
+2. Create Artifact Registry repository
+3. Build and push Docker image
+4. Deploy to Cloud Run with environment variables
+
+### Update Environment Variables Only
+
+After initial deployment, to update environment variables:
 
 ```bash
-# 1. Build the application
-pnpm install
-pnpm build
+export GCP_PROJECT_ID=your-project-id
+export SLACK_BOT_TOKEN=xoxb-your-token
+export SLACK_SIGNING_SECRET=your-signing-secret
+export ANTHROPIC_API_KEY=sk-ant-your-key
 
-# 2. Build Docker image
-pnpm docker:build
+./scripts/update-env.sh
+```
 
-# 3. Push to Container Registry
-docker tag slack-timeline-retro gcr.io/YOUR_PROJECT_ID/slack-timeline-retro
-docker push gcr.io/YOUR_PROJECT_ID/slack-timeline-retro
+### Manual Deploy
 
-# 4. Deploy to Cloud Run
+If you prefer manual deployment:
+
+```bash
+# 1. Set project and enable APIs
+gcloud config set project YOUR_PROJECT_ID
+gcloud services enable run.googleapis.com artifactregistry.googleapis.com
+
+# 2. Build and push Docker image
+docker build --platform linux/amd64 -t asia-northeast1-docker.pkg.dev/YOUR_PROJECT_ID/slack-timeline-retro/slack-timeline-retro:latest .
+gcloud auth configure-docker asia-northeast1-docker.pkg.dev
+docker push asia-northeast1-docker.pkg.dev/YOUR_PROJECT_ID/slack-timeline-retro/slack-timeline-retro:latest
+
+# 3. Deploy to Cloud Run
 gcloud run deploy slack-timeline-retro \
-  --image gcr.io/YOUR_PROJECT_ID/slack-timeline-retro \
+  --image asia-northeast1-docker.pkg.dev/YOUR_PROJECT_ID/slack-timeline-retro/slack-timeline-retro:latest \
   --platform managed \
   --region asia-northeast1 \
   --allow-unauthenticated \
-  --set-secrets=SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_SIGNING_SECRET=SLACK_SIGNING_SECRET:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
-  --set-env-vars=GCP_PROJECT_ID=YOUR_PROJECT_ID,PUBSUB_TOPIC=summary-jobs
+  --set-env-vars "SLACK_BOT_TOKEN=xxx,SLACK_SIGNING_SECRET=xxx,ANTHROPIC_API_KEY=xxx"
 
-# 5. Get the service URL
-gcloud run services describe slack-timeline-retro --format='value(status.url)'
+# 4. Get the service URL
+gcloud run services describe slack-timeline-retro --region asia-northeast1 --format='value(status.url)'
 ```
 
 ### Update Slack App Request URL
 
-After deployment, update the Slack App's Request URL to:
+After deployment, update the Slack App's Slash Command Request URL to:
 
 ```
 https://slack-timeline-retro-xxxxx-an.a.run.app/slack/command
-```
-
-### Update Pub/Sub Push Endpoint
-
-```bash
-gcloud pubsub subscriptions update summary-jobs-push \
-  --push-endpoint=https://slack-timeline-retro-xxxxx-an.a.run.app/jobs/process
 ```
 
 ---

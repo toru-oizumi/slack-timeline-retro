@@ -29,6 +29,13 @@ describe('Slack Routes Integration', () => {
       TARGET_YEAR: '2025',
     };
 
+    // Set process.env for Node.js compatibility
+    process.env.SLACK_BOT_TOKEN = mockEnv.SLACK_BOT_TOKEN;
+    process.env.SLACK_SIGNING_SECRET = mockEnv.SLACK_SIGNING_SECRET;
+    process.env.ANTHROPIC_API_KEY = mockEnv.ANTHROPIC_API_KEY;
+    process.env.ENVIRONMENT = mockEnv.ENVIRONMENT;
+    process.env.TARGET_YEAR = mockEnv.TARGET_YEAR;
+
     // Re-import app to apply mocks
     const { default: importedApp } = await import('@/index');
     app = importedApp;

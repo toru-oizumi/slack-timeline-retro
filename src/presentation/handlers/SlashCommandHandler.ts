@@ -1,7 +1,6 @@
 import { SlackChannel } from '@/domain';
 import { AIService } from '@/infrastructure/ai';
 import { defaultAIConfig, type Locale } from '@/infrastructure/config';
-import { DateService } from '@/infrastructure/date';
 import { SlackRepository } from '@/infrastructure/slack';
 import { loadConfig, loadWorkspaceConfig, type WorkspaceConfig } from '@/shared/config';
 import type { CommandResult, Env, SlackCommandPayload } from '@/shared/types';
@@ -38,7 +37,6 @@ export class SlashCommandHandler {
       },
       locale: this.locale,
     });
-    this.dateService = new DateService();
     this.targetYear = config.app.targetYear;
   }
 
@@ -58,15 +56,8 @@ export class SlashCommandHandler {
    * Parse and execute command
    */
   async handle(payload: SlackCommandPayload): Promise<CommandResult> {
-    // Only allow execution in DM channels (channel IDs starting with 'D')
-    if (!payload.channel_id.startsWith('D')) {
-      return {
-        success: false,
-        message: 'This command can only be used in direct messages (DM).',
-      };
-    }
-
-    const channel = SlackChannel.create(payload.channel_id);
+    // Note: channel_id is now always a DM channel opened by the route handler
+    const channel = SlackChannel.create(payload.channel_id, payload.threadTs);
     const args = this.parseCommand(payload.text);
     const options: CommandOptions = {
       includePrivateChannels: args.includePrivate,
