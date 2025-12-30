@@ -1,5 +1,5 @@
-import { SummaryType, getSummaryTag, parseSummaryType } from '@/domain/value-objects/SummaryType';
 import { describe, expect, it } from 'vitest';
+import { getSummaryTag, parseSummaryType, SummaryType } from '@/domain/value-objects/SummaryType';
 
 describe('SummaryType', () => {
   describe('getSummaryTag', () => {

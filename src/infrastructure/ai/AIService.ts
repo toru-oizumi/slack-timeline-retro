@@ -1,21 +1,20 @@
-import type { Post, Summary } from '@/domain';
-import type { GeneratedContent, IAIService } from '@/domain';
-import { AIServiceError } from '@/shared/errors';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import type { CoreMessage } from 'ai';
+import type { ModelMessage } from 'ai';
 import { generateText } from 'ai';
+import type { GeneratedContent, IAIService, Post, Summary } from '@/domain';
+import { AIServiceError } from '@/shared/errors';
 import {
   type AIConfig,
   type AIGenerationConfig,
-  type Locale,
-  type PromptTemplate,
-  type PromptTemplates,
   buildPrompt,
   defaultAIConfig,
   defaultPromptTemplates,
   getGenerationConfigForType,
   getLocaleStrings,
+  type Locale,
+  type PromptTemplate,
+  type PromptTemplates,
 } from '../config';
 
 // Type for model returned by provider factories
@@ -148,8 +147,8 @@ export class AIService implements IAIService {
   private buildMessages(
     template: PromptTemplate,
     variables: Record<string, string>
-  ): CoreMessage[] {
-    const messages: CoreMessage[] = [];
+  ): ModelMessage[] {
+    const messages: ModelMessage[] = [];
 
     // System message (static, cacheable)
     if (template.system) {
@@ -175,14 +174,14 @@ export class AIService implements IAIService {
    * Using messages array enables prompt caching for system messages
    */
   private async generate(
-    messages: CoreMessage[],
+    messages: ModelMessage[],
     generationConfig: AIGenerationConfig
   ): Promise<GeneratedContent> {
     try {
       const result = await generateText({
         model: this.model,
         messages,
-        maxTokens: generationConfig.maxTokens,
+        maxOutputTokens: generationConfig.maxTokens,
         temperature: generationConfig.temperature,
         topP: generationConfig.topP,
         topK: generationConfig.topK ?? undefined,

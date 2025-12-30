@@ -1,5 +1,5 @@
 import { DateRange } from '../value-objects/DateRange';
-import { SummaryType, getSummaryTag } from '../value-objects/SummaryType';
+import { getSummaryTag, SummaryType } from '../value-objects/SummaryType';
 
 /**
  * Summary entity (aggregate root)

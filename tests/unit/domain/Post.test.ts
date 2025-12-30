@@ -1,5 +1,5 @@
-import { Post } from '@/domain/entities/Post';
 import { describe, expect, it } from 'vitest';
+import { Post } from '@/domain/entities/Post';
 
 describe('Post', () => {
   describe('create', () => {

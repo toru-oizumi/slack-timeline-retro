@@ -1,7 +1,7 @@
+import { describe, expect, it } from 'vitest';
 import { Summary } from '@/domain/entities/Summary';
 import { DateRange } from '@/domain/value-objects/DateRange';
 import { SummaryType } from '@/domain/value-objects/SummaryType';
-import { describe, expect, it } from 'vitest';
 
 describe('Summary', () => {
   describe('createWeekly', () => {

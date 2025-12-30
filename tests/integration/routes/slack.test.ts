@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
-import type { Env } from '@/shared/types';
 import type { Hono } from 'hono';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Env } from '@/shared/types';
 
 // Mock modules
 vi.mock('@/infrastructure/slack/SlackRepository');
@@ -24,8 +24,6 @@ describe('Slack Routes Integration', () => {
     mockEnv = {
       SLACK_BOT_TOKEN: 'xoxb-test-token',
       SLACK_SIGNING_SECRET: SIGNING_SECRET,
-      DM_CHANNEL_ID: 'D12345',
-      THREAD_TS: '1736000000.000000',
       ANTHROPIC_API_KEY: 'test-api-key',
       ENVIRONMENT: 'development',
       TARGET_YEAR: '2025',

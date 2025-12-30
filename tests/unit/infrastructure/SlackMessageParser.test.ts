@@ -1,6 +1,6 @@
+import { describe, expect, it } from 'vitest';
 import { SummaryType } from '@/domain';
 import { SlackMessageParser } from '@/infrastructure/slack/SlackMessageParser';
-import { describe, expect, it } from 'vitest';
 
 describe('SlackMessageParser', () => {
   const parser = new SlackMessageParser();

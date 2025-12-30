@@ -1,5 +1,5 @@
-import { DateService } from '@/infrastructure/date/DateService';
 import { describe, expect, it } from 'vitest';
+import { DateService } from '@/infrastructure/date/DateService';
 
 describe('DateService', () => {
   const dateService = new DateService();

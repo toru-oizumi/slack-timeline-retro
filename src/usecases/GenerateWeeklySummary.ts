@@ -1,7 +1,7 @@
-import { DateRange, Post, type SlackChannel, Summary, SummaryType } from '@/domain';
-import type { IAIService, ISlackRepository } from '@/domain';
-import { PostsNotFoundError, type Result, err, ok } from '@/shared/errors';
 import { getWeek } from 'date-fns';
+import type { IAIService, ISlackRepository } from '@/domain';
+import { DateRange, type SlackChannel, Summary } from '@/domain';
+import { err, ok, PostsNotFoundError, type Result } from '@/shared/errors';
 
 /**
  * Weekly summary generation use case

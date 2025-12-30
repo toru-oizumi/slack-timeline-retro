@@ -10,12 +10,11 @@ export interface AppConfig {
 export interface SlackConfig {
   botToken: string;
   signingSecret: string;
-  dmChannelId: string;
-  threadTs: string;
 }
 
 export interface AIConfig {
   apiKey: string;
+  provider: 'openai' | 'anthropic';
   model: string;
   maxTokens: number;
 }
@@ -23,6 +22,7 @@ export interface AIConfig {
 export interface ApplicationConfig {
   environment: 'development' | 'production';
   targetYear: number;
+  locale: 'en_US' | 'ja_JP';
 }
 
 /**
@@ -61,7 +61,7 @@ export interface WorkspaceConfig {
 export const defaultWorkspaceConfig: WorkspaceConfig = {
   includeChannels: [],
   excludeChannels: [],
-  includePrivateChannels: true,
+  includePrivateChannels: false,
   includeDirectMessages: false,
   includeGroupMessages: false,
 };
@@ -73,22 +73,47 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   const slack: SlackConfig = {
     botToken: requireEnv(env, 'SLACK_BOT_TOKEN'),
     signingSecret: requireEnv(env, 'SLACK_SIGNING_SECRET'),
-    dmChannelId: requireEnv(env, 'DM_CHANNEL_ID'),
-    threadTs: requireEnv(env, 'THREAD_TS'),
   };
 
+  // Detect AI provider and get API key
+  const { apiKey, provider } = getAICredentials(env);
+
   const ai: AIConfig = {
-    apiKey: requireEnv(env, 'ANTHROPIC_API_KEY'),
-    model: env.AI_MODEL ?? 'claude-3-5-sonnet-20241022',
+    apiKey,
+    provider,
+    model:
+      env.AI_MODEL ??
+      (provider === 'openai' ? 'gpt-5-mini-2025-08-07' : 'claude-sonnet-4-5-20250929'),
     maxTokens: Number.parseInt(env.AI_MAX_TOKENS ?? '4096', 10),
   };
+
+  const locale = (env.LOCALE === 'ja_JP' ? 'ja_JP' : 'en_US') as 'en_US' | 'ja_JP';
 
   const app: ApplicationConfig = {
     environment: (env.ENVIRONMENT ?? 'development') as 'development' | 'production',
     targetYear: Number.parseInt(env.TARGET_YEAR ?? new Date().getFullYear().toString(), 10),
+    locale,
   };
 
   return { slack, ai, app };
+}
+
+/**
+ * Get AI credentials from environment (supports OpenAI and Anthropic)
+ */
+function getAICredentials(env: Record<string, string | undefined>): {
+  apiKey: string;
+  provider: 'openai' | 'anthropic';
+} {
+  // Prefer OpenAI if available
+  if (env.OPENAI_API_KEY) {
+    return { apiKey: env.OPENAI_API_KEY, provider: 'openai' };
+  }
+  // Fall back to Anthropic
+  if (env.ANTHROPIC_API_KEY) {
+    return { apiKey: env.ANTHROPIC_API_KEY, provider: 'anthropic' };
+  }
+  throw new Error('Either OPENAI_API_KEY or ANTHROPIC_API_KEY must be set');
 }
 
 /**
@@ -98,7 +123,7 @@ export function loadWorkspaceConfig(env: Record<string, string | undefined>): Wo
   return {
     includeChannels: parseChannelList(env.INCLUDE_CHANNELS),
     excludeChannels: parseChannelList(env.EXCLUDE_CHANNELS),
-    includePrivateChannels: env.INCLUDE_PRIVATE_CHANNELS !== 'false',
+    includePrivateChannels: env.INCLUDE_PRIVATE_CHANNELS === 'true',
     includeDirectMessages: env.INCLUDE_DIRECT_MESSAGES === 'true',
     includeGroupMessages: env.INCLUDE_GROUP_MESSAGES === 'true',
   };

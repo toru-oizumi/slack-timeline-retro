@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { Hono } from 'hono';
 import { AuthenticationError } from '@/shared/errors';
 import type { Env, SlackCommandPayload } from '@/shared/types';
-import { Hono } from 'hono';
 import { SlashCommandHandler } from '../handlers/SlashCommandHandler';
 
 const slackRoutes = new Hono<{ Bindings: Env }>();
@@ -51,6 +51,18 @@ function parseFormData(body: string): Record<string, string> {
 }
 
 /**
+ * Run async task in background (Node.js compatible)
+ */
+function runInBackground(fn: () => Promise<void>): void {
+  // Use setImmediate for Node.js to schedule the task
+  setImmediate(() => {
+    fn().catch((error) => {
+      console.error('Background task error:', error);
+    });
+  });
+}
+
+/**
  * Slack slash command endpoint
  */
 slackRoutes.post('/slack/command', async (c) => {
@@ -85,10 +97,10 @@ slackRoutes.post('/slack/command', async (c) => {
     trigger_id: formData.trigger_id ?? '',
   };
 
-  // Return response within 3 seconds
-  // Actual processing runs in background
-  c.executionCtx.waitUntil(
-    (async () => {
+  // Run actual processing in background
+  // This allows us to respond within Slack's 3-second timeout
+  runInBackground(async () => {
+    try {
       const handler = new SlashCommandHandler(env);
       const result = await handler.handle(payload);
 
@@ -98,11 +110,24 @@ slackRoutes.post('/slack/command', async (c) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           response_type: 'ephemeral',
-          text: result.message,
+          text: result.success ? `✅ ${result.message}` : `❌ ${result.message}`,
         }),
       });
-    })()
-  );
+    } catch (error) {
+      // Send error to response_url
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('SlashCommand error:', errorMessage);
+
+      await fetch(payload.response_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          response_type: 'ephemeral',
+          text: `❌ Error: ${errorMessage}`,
+        }),
+      });
+    }
+  });
 
   // Return immediate processing message
   return c.json({

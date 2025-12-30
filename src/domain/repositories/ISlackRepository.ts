@@ -29,18 +29,12 @@ export interface ISlackRepository {
   /**
    * Post summary to thread as a reply
    */
-  postSummaryToThread(params: {
-    channel: SlackChannel;
-    summary: Summary;
-  }): Promise<string>;
+  postSummaryToThread(params: { channel: SlackChannel; summary: Summary }): Promise<string>;
 
   /**
    * Post summary to thread and broadcast to channel (reply_broadcast)
    */
-  broadcastSummary(params: {
-    channel: SlackChannel;
-    summary: Summary;
-  }): Promise<string>;
+  broadcastSummary(params: { channel: SlackChannel; summary: Summary }): Promise<string>;
 
   /**
    * Get user info

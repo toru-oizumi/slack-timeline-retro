@@ -1,7 +1,7 @@
-import { DateRange, SlackChannel, Summary, SummaryType } from '@/domain';
-import type { GeneratedContent, IAIService, ISlackRepository } from '@/domain';
-import { GenerateMonthlySummary } from '@/usecases/GenerateMonthlySummary';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { GeneratedContent, IAIService, ISlackRepository } from '@/domain';
+import { DateRange, SlackChannel, Summary } from '@/domain';
+import { GenerateMonthlySummary } from '@/usecases/GenerateMonthlySummary';
 
 describe('GenerateMonthlySummary', () => {
   let mockSlackRepository: ISlackRepository;

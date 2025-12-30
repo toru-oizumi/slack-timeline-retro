@@ -1,12 +1,11 @@
 export type {
-  ISlackRepository,
-  SlackUserInfo,
-  SlackChannelInfo,
-} from './ISlackRepository';
-
-export type {
-  IAIService,
-  GeneratedContent,
   ContentMetadata,
+  GeneratedContent,
+  IAIService,
   SummarySchema,
 } from './IAIService';
+export type {
+  ISlackRepository,
+  SlackChannelInfo,
+  SlackUserInfo,
+} from './ISlackRepository';

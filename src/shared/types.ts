@@ -8,13 +8,15 @@
 export interface Env {
   SLACK_BOT_TOKEN: string;
   SLACK_SIGNING_SECRET: string;
-  DM_CHANNEL_ID: string;
-  THREAD_TS: string;
-  ANTHROPIC_API_KEY: string;
+  // AI API keys (one of these is required)
+  OPENAI_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
   ENVIRONMENT?: string;
   TARGET_YEAR?: string;
   AI_MODEL?: string;
   AI_MAX_TOKENS?: string;
+  // Locale setting (en_US or ja_JP)
+  LOCALE?: string;
   // Workspace configuration
   INCLUDE_CHANNELS?: string;
   EXCLUDE_CHANNELS?: string;

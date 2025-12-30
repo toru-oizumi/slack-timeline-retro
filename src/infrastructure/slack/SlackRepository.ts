@@ -1,16 +1,16 @@
+import { WebClient } from '@slack/web-api';
+import type { ISlackRepository, SlackChannelInfo, SlackUserInfo } from '@/domain';
 import {
   type DateRange,
   Post,
+  parseSummaryType,
   type SlackChannel,
   type Summary,
   type SummaryType,
-  parseSummaryType,
 } from '@/domain';
-import type { ISlackRepository, SlackChannelInfo, SlackUserInfo } from '@/domain';
 import type { WorkspaceConfig } from '@/shared/config';
 import { SlackAPIError } from '@/shared/errors';
-import { WebClient } from '@slack/web-api';
-import { type Locale, getLocaleStrings } from '../config';
+import { getLocaleStrings, type Locale } from '../config';
 import { SlackMessageParser } from './SlackMessageParser';
 
 /**
@@ -180,10 +180,7 @@ export class SlackRepository implements ISlackRepository {
     return summaries;
   }
 
-  async postSummaryToThread(params: {
-    channel: SlackChannel;
-    summary: Summary;
-  }): Promise<string> {
+  async postSummaryToThread(params: { channel: SlackChannel; summary: Summary }): Promise<string> {
     const { channel, summary } = params;
     const localeStrings = getLocaleStrings(this.locale);
 
@@ -201,10 +198,7 @@ export class SlackRepository implements ISlackRepository {
     return response.ts;
   }
 
-  async broadcastSummary(params: {
-    channel: SlackChannel;
-    summary: Summary;
-  }): Promise<string> {
+  async broadcastSummary(params: { channel: SlackChannel; summary: Summary }): Promise<string> {
     const { channel, summary } = params;
     const localeStrings = getLocaleStrings(this.locale);
 

@@ -1,6 +1,4 @@
-import { DateRange } from '@/domain';
 import {
-  addMonths,
   addWeeks,
   eachWeekOfInterval,
   endOfMonth,
@@ -8,10 +6,9 @@ import {
   getMonth,
   getWeek,
   getYear,
-  isWithinInterval,
-  startOfMonth,
   startOfWeek,
 } from 'date-fns';
+import { DateRange } from '@/domain';
 
 /**
  * Date operation service

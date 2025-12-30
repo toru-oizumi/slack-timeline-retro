@@ -1,6 +1,6 @@
-import { DateRange, type SlackChannel, Summary, SummaryType } from '@/domain';
 import type { IAIService, ISlackRepository } from '@/domain';
-import { type Result, SummaryNotFoundError, err, ok } from '@/shared/errors';
+import { DateRange, type SlackChannel, Summary, SummaryType } from '@/domain';
+import { err, ok, type Result, SummaryNotFoundError } from '@/shared/errors';
 
 /**
  * Yearly summary generation use case

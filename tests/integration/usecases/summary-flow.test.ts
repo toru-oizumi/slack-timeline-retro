@@ -1,10 +1,9 @@
-import { DateRange, SlackChannel, Summary, SummaryType } from '@/domain';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GeneratedContent, IAIService, ISlackRepository } from '@/domain';
-import { Post } from '@/domain';
+import { DateRange, Post, SlackChannel, Summary, SummaryType } from '@/domain';
 import { GenerateMonthlySummary } from '@/usecases/GenerateMonthlySummary';
 import { GenerateWeeklySummary } from '@/usecases/GenerateWeeklySummary';
 import { GenerateYearlySummary } from '@/usecases/GenerateYearlySummary';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Integration test for Weekly -> Monthly -> Yearly flow

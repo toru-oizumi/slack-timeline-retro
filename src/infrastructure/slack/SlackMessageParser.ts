@@ -1,4 +1,4 @@
-import { DateRange, Summary, SummaryType, parseSummaryType } from '@/domain';
+import { DateRange, parseSummaryType, Summary, SummaryType } from '@/domain';
 
 /**
  * Slack message parser

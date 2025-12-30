@@ -1,2 +1,2 @@
-export { SlackRepository } from './SlackRepository';
 export { SlackMessageParser } from './SlackMessageParser';
+export { SlackRepository } from './SlackRepository';

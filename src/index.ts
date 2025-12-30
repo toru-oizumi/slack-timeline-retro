@@ -1,10 +1,11 @@
-import { slackRoutes } from '@/presentation';
-import { AppError } from '@/shared/errors';
-import type { Env } from '@/shared/types';
+import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
+import { slackRoutes } from '@/presentation';
+import { AppError } from '@/shared/errors';
+import type { Env } from '@/shared/types';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -52,5 +53,17 @@ app.get('/', (c) => {
     description: 'Slack Activity Summary Tool',
   });
 });
+
+// Start server
+const port = Number(process.env.PORT) || 8080;
+
+console.log(`Starting server on port ${port}...`);
+
+serve({
+  fetch: app.fetch,
+  port,
+});
+
+console.log(`Server is running on http://localhost:${port}`);
 
 export default app;

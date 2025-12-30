@@ -5,8 +5,12 @@
   "type": "module",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "node --watch --import=tsx src/index.ts",
+    "build": "tsc && node scripts/build.js",
+    "start": "node dist/index.js",
+    "docker:build": "docker build -t slack-timeline-retro .",
+    "docker:run": "docker run -p 8080:8080 --env-file .env slack-timeline-retro",
+    "deploy": "gcloud run deploy slack-timeline-retro --source .",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --ui",
@@ -16,26 +20,30 @@
     "format:fix": "biome format --write .",
     "check": "biome check .",
     "check:tsc": "tsc --noEmit",
-    "check:fix": "biome check --write ."
+    "check:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^1.2.12",
+    "@ai-sdk/anthropic": "^3.0.1",
     "@ai-sdk/openai": "^3.0.1",
-    "@hono/zod-validator": "^0.4.0",
-    "@slack/web-api": "^7.0.0",
-    "ai": "^4.0.0",
+    "@google-cloud/pubsub": "^4.10.0",
+    "@hono/node-server": "^1.14.1",
+    "@hono/zod-validator": "^0.7.6",
+    "@slack/web-api": "^7.13.0",
+    "ai": "^6.0.3",
     "date-fns": "^4.1.0",
-    "hono": "^4.6.0",
-    "yaml": "^2.6.0",
-    "zod": "^3.23.0"
+    "hono": "^4.11.3",
+    "yaml": "^2.8.2",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.0",
-    "@cloudflare/workers-types": "^4.20241127.0",
-    "@vitest/coverage-v8": "^2.1.0",
-    "@vitest/ui": "^2.1.0",
-    "typescript": "^5.7.0",
-    "vitest": "^2.1.0",
-    "wrangler": "^3.91.0"
+    "@biomejs/biome": "^2.3.10",
+    "@types/node": "^25.0.3",
+    "@vitest/coverage-v8": "^4.0.16",
+    "@vitest/ui": "^4.0.16",
+    "esbuild": "^0.27.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
   }
 }

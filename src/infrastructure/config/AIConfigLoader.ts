@@ -101,7 +101,7 @@ export interface AIConfig {
 export const defaultAIConfig: AIConfig = {
   model: {
     provider: 'openai',
-    id: 'gpt-4.1-mini-2025-04-14',
+    id: 'gpt-5-mini-2025-08-07',
   },
   generation: {
     maxTokens: 4096,

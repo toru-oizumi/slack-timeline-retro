@@ -1,5 +1,5 @@
-import { DateRange, InvalidDateRangeError } from '@/domain/value-objects/DateRange';
 import { describe, expect, it } from 'vitest';
+import { DateRange, InvalidDateRangeError } from '@/domain/value-objects/DateRange';
 
 describe('DateRange', () => {
   describe('create', () => {

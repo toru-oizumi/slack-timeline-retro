@@ -1,26 +1,24 @@
 // Entities
-export { Post } from './entities';
-export type { SlackMessage } from './entities';
-export { Summary } from './entities';
 
+export type { SlackMessage } from './entities';
+export { Post, Summary } from './entities';
+// Repository Interfaces
+export type {
+  ContentMetadata,
+  GeneratedContent,
+  IAIService,
+  ISlackRepository,
+  SlackChannelInfo,
+  SlackUserInfo,
+  SummarySchema,
+} from './repositories';
 // Value Objects
 export {
   DateRange,
-  InvalidDateRangeError,
-  SummaryType,
   getSummaryTag,
+  InvalidDateRangeError,
+  InvalidSlackChannelError,
   parseSummaryType,
   SlackChannel,
-  InvalidSlackChannelError,
+  SummaryType,
 } from './value-objects';
-
-// Repository Interfaces
-export type {
-  ISlackRepository,
-  SlackUserInfo,
-  SlackChannelInfo,
-  IAIService,
-  GeneratedContent,
-  ContentMetadata,
-  SummarySchema,
-} from './repositories';
