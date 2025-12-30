@@ -237,6 +237,8 @@ interface Summary {
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--private` | プライベートチャンネルを含める | `false` |
+| `--dm` | DMを含める | `false` |
+| `--group` | グループDMを含める | `false` |
 
 ### 7.4 コマンド例
 
@@ -244,6 +246,9 @@ interface Summary {
 /summarize-2025                       # 年次サマリー（デフォルト）
 /summarize-2025 yearly                # 年次サマリー
 /summarize-2025 yearly --private      # privateチャンネルも含む
+/summarize-2025 yearly --dm           # DMも含む
+/summarize-2025 yearly --group        # グループDMも含む
+/summarize-2025 yearly --private --dm --group  # すべて含む
 /summarize-2025 monthly 12            # 12月のサマリー
 /summarize-2025 monthly 12 --private  # 12月、privateチャンネルも含む
 /summarize-2025 weekly                # 今週のサマリー
@@ -275,6 +280,8 @@ interface Summary {
 | `INCLUDE_CHANNELS` | (empty) | 対象チャンネル（カンマ区切り） |
 | `EXCLUDE_CHANNELS` | (empty) | 除外チャンネル（カンマ区切り） |
 | `INCLUDE_PRIVATE_CHANNELS` | `false` | デフォルトでプライベートチャンネルを含める |
+| `INCLUDE_DIRECT_MESSAGES` | `false` | DMを分析対象に含める |
+| `INCLUDE_GROUP_MESSAGES` | `false` | グループDMを分析対象に含める |
 
 ## 9. エラーハンドリング
 
@@ -313,7 +320,7 @@ interface Summary {
 | Memory | 512Mi |
 | Min instances | 0 |
 | Max instances | 10 |
-| Timeout | 300s |
+| Timeout | 3600s |
 | Concurrency | 80 |
 
 ### 11.2 Firestore設定

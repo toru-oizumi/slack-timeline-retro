@@ -51,6 +51,10 @@ export class SlashCommandHandler {
       ...this.baseWorkspaceConfig,
       includePrivateChannels:
         options.includePrivateChannels ?? this.baseWorkspaceConfig.includePrivateChannels,
+      includeDirectMessages:
+        options.includeDirectMessages ?? this.baseWorkspaceConfig.includeDirectMessages,
+      includeGroupMessages:
+        options.includeGroupMessages ?? this.baseWorkspaceConfig.includeGroupMessages,
     };
     return new SlackRepository(
       this.env.SLACK_BOT_TOKEN,
@@ -69,6 +73,8 @@ export class SlashCommandHandler {
     const args = this.parseCommand(payload.text);
     const options: CommandOptions = {
       includePrivateChannels: args.includePrivate,
+      includeDirectMessages: args.includeDM,
+      includeGroupMessages: args.includeGroup,
     };
 
     switch (args.type) {
@@ -90,8 +96,10 @@ export class SlashCommandHandler {
     const parts = text.trim().split(/\s+/);
     const lowerParts = parts.map((p) => p.toLowerCase());
 
-    // Check for --private flag
+    // Check for flags
     const includePrivate = lowerParts.includes('--private');
+    const includeDM = lowerParts.includes('--dm');
+    const includeGroup = lowerParts.includes('--group');
 
     // Filter out flags for type parsing
     const nonFlagParts = lowerParts.filter((p) => !p.startsWith('--'));
@@ -99,20 +107,20 @@ export class SlashCommandHandler {
 
     switch (type) {
       case 'weekly': {
-        // /summarize-2025 weekly [YYYY-MM-DD] [--private]
+        // /summarize-2025 weekly [YYYY-MM-DD] [--private] [--dm] [--group]
         const dateStr = nonFlagParts[1];
         const date = dateStr && !Number.isNaN(Date.parse(dateStr)) ? new Date(dateStr) : new Date();
-        return { type: 'weekly', date, includePrivate };
+        return { type: 'weekly', date, includePrivate, includeDM, includeGroup };
       }
       case 'monthly': {
-        // /summarize-2025 monthly [1-12] [--private]
+        // /summarize-2025 monthly [1-12] [--private] [--dm] [--group]
         const monthStr = nonFlagParts[1];
         const month = monthStr ? Number.parseInt(monthStr, 10) : new Date().getMonth() + 1;
-        return { type: 'monthly', month, includePrivate };
+        return { type: 'monthly', month, includePrivate, includeDM, includeGroup };
       }
       default:
         // Default to yearly summary
-        return { type: 'yearly', includePrivate };
+        return { type: 'yearly', includePrivate, includeDM, includeGroup };
     }
   }
 
@@ -139,10 +147,10 @@ export class SlashCommandHandler {
       };
     }
 
-    const privateNote = options.includePrivateChannels ? ' (including private channels)' : '';
+    const notes = this.buildOptionsNote(options);
     return {
       success: true,
-      message: `Weekly summary created (${result.value.dateRange.format()})${privateNote}`,
+      message: `Weekly summary created (${result.value.dateRange.format()})${notes}`,
       summaryId: result.value.id ?? undefined,
     };
   }
@@ -177,10 +185,10 @@ export class SlashCommandHandler {
       };
     }
 
-    const privateNote = options.includePrivateChannels ? ' (including private channels)' : '';
+    const notes = this.buildOptionsNote(options);
     return {
       success: true,
-      message: `Monthly summary for ${month} created${privateNote}`,
+      message: `Monthly summary for ${month} created${notes}`,
       summaryId: result.value.id ?? undefined,
     };
   }
@@ -206,17 +214,27 @@ export class SlashCommandHandler {
       };
     }
 
-    const privateNote = options.includePrivateChannels ? ' (including private channels)' : '';
+    const notes = this.buildOptionsNote(options);
     return {
       success: true,
-      message: `Yearly summary for ${this.targetYear} created${privateNote}`,
+      message: `Yearly summary for ${this.targetYear} created${notes}`,
       summaryId: result.value.id ?? undefined,
     };
+  }
+
+  private buildOptionsNote(options: CommandOptions): string {
+    const parts: string[] = [];
+    if (options.includePrivateChannels) parts.push('private channels');
+    if (options.includeDirectMessages) parts.push('DMs');
+    if (options.includeGroupMessages) parts.push('group DMs');
+    return parts.length > 0 ? ` (including ${parts.join(', ')})` : '';
   }
 }
 
 interface CommandOptions {
   includePrivateChannels?: boolean;
+  includeDirectMessages?: boolean;
+  includeGroupMessages?: boolean;
 }
 
 interface ParsedCommand {
@@ -224,4 +242,6 @@ interface ParsedCommand {
   date?: Date;
   month?: number;
   includePrivate?: boolean;
+  includeDM?: boolean;
+  includeGroup?: boolean;
 }

@@ -72,10 +72,14 @@ function runInBackground(fn: () => Promise<void>): void {
 function parseCommand(text: string): {
   type: 'weekly' | 'monthly' | 'yearly';
   includePrivate: boolean;
+  includeDM: boolean;
+  includeGroup: boolean;
 } {
   const parts = text.trim().split(/\s+/);
   const lowerParts = parts.map((p) => p.toLowerCase());
   const includePrivate = lowerParts.includes('--private');
+  const includeDM = lowerParts.includes('--dm');
+  const includeGroup = lowerParts.includes('--group');
   const nonFlagParts = lowerParts.filter((p) => !p.startsWith('--'));
   const firstArg = nonFlagParts[0];
 
@@ -85,7 +89,7 @@ function parseCommand(text: string): {
       ? (firstArg as 'weekly' | 'monthly' | 'yearly')
       : 'yearly';
 
-  return { type, includePrivate };
+  return { type, includePrivate, includeDM, includeGroup };
 }
 
 /**
@@ -124,7 +128,7 @@ slackRoutes.post('/slack/command', async (c) => {
   };
 
   // Parse command to get type (defaults to yearly if not specified)
-  const { type, includePrivate } = parseCommand(payload.text);
+  const { type, includePrivate, includeDM, includeGroup } = parseCommand(payload.text);
 
   const botToken = env.SLACK_BOT_TOKEN;
   const userId = payload.user_id;
@@ -168,7 +172,12 @@ slackRoutes.post('/slack/command', async (c) => {
       console.log(`Opened self-DM channel: ${selfDmChannelId} for user: ${userId}`);
 
       // Post start message to create thread (using user token)
-      const startMessage = `🔄 *Generating ${type} summary...*\n_Please wait while I analyze your posts._${includePrivate ? '\n📁 Including private channels.' : ''}`;
+      const optionNotes: string[] = [];
+      if (includePrivate) optionNotes.push('📁 private channels');
+      if (includeDM) optionNotes.push('💬 DMs');
+      if (includeGroup) optionNotes.push('👥 group DMs');
+      const optionsText = optionNotes.length > 0 ? `\n_Including: ${optionNotes.join(', ')}_` : '';
+      const startMessage = `🔄 *Generating ${type} summary...*\n_Please wait while I analyze your posts._${optionsText}`;
 
       const threadTs = await slackRepository.postToSelfDM({
         channelId: selfDmChannelId,
@@ -211,9 +220,14 @@ slackRoutes.post('/slack/command', async (c) => {
   });
 
   // Return immediate acknowledgment
+  const ackOptions: string[] = [];
+  if (includePrivate) ackOptions.push('private');
+  if (includeDM) ackOptions.push('DMs');
+  if (includeGroup) ackOptions.push('group DMs');
+  const ackOptionsText = ackOptions.length > 0 ? ` (including ${ackOptions.join(', ')})` : '';
   return c.json({
     response_type: 'ephemeral',
-    text: `🚀 Starting ${type} summary generation... Check your self-DM (notes to self)!`,
+    text: `🚀 Starting ${type} summary generation${ackOptionsText}... Check your self-DM (notes to self)!`,
   });
 });
 

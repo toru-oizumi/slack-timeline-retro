@@ -231,6 +231,9 @@ Run these commands in any Slack channel:
 /summarize-2025                       # Yearly summary (default)
 /summarize-2025 yearly                # Yearly summary (explicit)
 /summarize-2025 yearly --private      # Include private channels
+/summarize-2025 yearly --dm           # Include DMs
+/summarize-2025 yearly --group        # Include group DMs
+/summarize-2025 yearly --private --dm --group  # Include all
 /summarize-2025 monthly 1             # January summary
 /summarize-2025 monthly 1 --private   # Include private channels
 /summarize-2025 weekly                # This week's summary
@@ -243,6 +246,8 @@ Run these commands in any Slack channel:
 | Option | Description |
 |--------|-------------|
 | `--private` | Include private channels (user must be a member) |
+| `--dm` | Include direct messages |
+| `--group` | Include group direct messages |
 
 ### Output Location
 
@@ -308,9 +313,10 @@ You need to authorize the app to access your Slack messages.
 
 ### "Timeout waiting for response"
 
-Cloud Run has a default timeout of 300 seconds. For large summaries:
+Cloud Run timeout is set to 3600 seconds (60 minutes) for yearly summaries. If you still experience timeouts:
 1. Check Cloud Run logs for errors
-2. Increase timeout if needed: `gcloud run services update slack-timeline-retro --timeout=600`
+2. Try generating monthly summaries first: `/summarize-2025 monthly 1`
+3. Use channel filters to reduce scope: `INCLUDE_CHANNELS=project1,project2`
 
 ### "No posts found for period"
 
