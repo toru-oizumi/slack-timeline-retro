@@ -8,6 +8,7 @@ export {
   defaultPromptTemplates,
   getGenerationConfigForType,
   getLocaleStrings,
+  getPromptTemplates,
   type Locale,
   type LocaleStrings,
   loadAIConfig,

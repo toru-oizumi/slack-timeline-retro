@@ -12,11 +12,19 @@ export class SlackMessageParser {
     if (!type) return null;
 
     // Extract period information
-    // Supports both English ("📅 Period:") and Japanese ("📅 期間:")
+    // Supports:
+    // - English: "📅 Period:", ":calendar: Period:", ":date: Period:"
+    // - Japanese: "📅 期間:", ":日付: 期間:", ":calendar: 期間:", ":date: 期間:"
+    // Note: Slack converts emoji to shortcode (e.g., 📅 → :date:)
     const periodMatch = text.match(
-      /📅\s*(?:Period|期間):\s*(\d{4}\/\d{2}\/\d{2})\s*[〜~-]\s*(\d{4}\/\d{2}\/\d{2})/
+      /(?:📅|:日付:|:calendar:|:date:)\s*(?:Period|期間):\s*(\d{4}\/\d{2}\/\d{2})\s*[〜~-]\s*(\d{4}\/\d{2}\/\d{2})/
     );
-    if (!periodMatch) return null;
+    if (!periodMatch) {
+      // Log for debugging - show what pattern we're looking for in the text
+      const snippet = text.substring(0, 150).replace(/\n/g, '\\n');
+      console.log(`parseSummaryMessage: Period regex failed. Text snippet: "${snippet}"`);
+      return null;
+    }
 
     const startDate = this.parseDate(periodMatch[1]);
     const endDate = this.parseDate(periodMatch[2]);
@@ -76,12 +84,18 @@ export class SlackMessageParser {
 
     for (const line of lines) {
       // Skip header section (supports both English and Japanese period labels)
+      // Also handle Slack emoji shortcodes (:日付:, :calendar:, :date:)
       if (
         line.includes('[WeeklySummary_') ||
         line.includes('[MonthlySummary_') ||
         line.includes('[YearlySummary_') ||
         line.includes('📅 Period:') ||
-        line.includes('📅 期間:')
+        line.includes('📅 期間:') ||
+        line.includes(':日付: 期間:') ||
+        line.includes(':calendar: Period:') ||
+        line.includes(':calendar: 期間:') ||
+        line.includes(':date: Period:') ||
+        line.includes(':date: 期間:')
       ) {
         continue;
       }

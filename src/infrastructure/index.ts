@@ -12,4 +12,5 @@ export {
   type PromptTemplates,
 } from './config';
 export { DateService } from './date';
+export { TokenRepository, type UserToken } from './firestore';
 export { SlackMessageParser, SlackRepository } from './slack';

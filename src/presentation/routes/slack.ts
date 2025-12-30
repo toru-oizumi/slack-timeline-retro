@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
+import { TokenRepository } from '@/infrastructure/firestore';
 import { SlackRepository } from '@/infrastructure/slack';
 import { defaultWorkspaceConfig } from '@/shared/config';
 import { AuthenticationError } from '@/shared/errors';
@@ -124,64 +125,87 @@ slackRoutes.post('/slack/command', async (c) => {
     });
   }
 
-  // Return response immediately to avoid Slack timeout (3 seconds)
-  // All Slack API calls happen in the background
   const botToken = env.SLACK_BOT_TOKEN;
   const userId = payload.user_id;
 
+  // Check for user token (OAuth authorization)
+  const tokenRepository = new TokenRepository();
+  const userTokenData = await tokenRepository.getToken(userId);
+
+  if (!userTokenData) {
+    // User needs to authorize - return OAuth link
+    const url = new URL(c.req.url);
+    // Use X-Forwarded-Proto for Cloud Run, fallback to https
+    const protocol = c.req.header('X-Forwarded-Proto') ?? 'https';
+    const oauthUrl = `${protocol}://${url.host}/oauth/install?user_id=${userId}`;
+
+    return c.json({
+      response_type: 'ephemeral',
+      text: `🔐 *Authorization Required*\n\nTo read your messages, please authorize the app first:\n<${oauthUrl}|Click here to authorize>\n\n_After authorization, run the command again._`,
+    });
+  }
+
+  const userToken = userTokenData.accessToken;
+  console.log(`User token found for: ${userId}, expires at: ${userTokenData.expiresAt.toISOString()}`);
+
+  // Return response immediately to avoid Slack timeout (3 seconds)
+  // All Slack API calls happen in the background
   runInBackground(async () => {
     try {
-      // Create SlackRepository for posting messages
-      const slackRepository = new SlackRepository(botToken, defaultWorkspaceConfig, 'en_US');
+      // Create SlackRepository with user token (for self-DM posting)
+      const slackRepository = new SlackRepository(botToken, defaultWorkspaceConfig, 'en_US', userToken);
 
-      // Open DM channel with the user (this ensures the bot can post messages)
-      const dmChannelId = await slackRepository.openDMChannel(userId);
-      console.log(`Opened DM channel: ${dmChannelId} for user: ${userId}`);
+      // Open self-DM channel (user's own DM with themselves)
+      const selfDmChannelId = await slackRepository.openSelfDMChannel(userId);
+      console.log(`Opened self-DM channel: ${selfDmChannelId} for user: ${userId}`);
 
-      // Post start message to create thread
+      // Post start message to create thread (using user token)
       const startMessage = `🔄 *Generating ${type} summary...*\n_Please wait while I analyze your posts._${includePrivate ? '\n📁 Including private channels.' : ''}`;
 
-      const threadTs = await slackRepository.postStartMessage({
-        channelId: dmChannelId,
+      const threadTs = await slackRepository.postToSelfDM({
+        channelId: selfDmChannelId,
         text: startMessage,
       });
 
-      console.log(`Thread created: channel=${dmChannelId}, thread_ts=${threadTs}`);
+      console.log(`Thread created: channel=${selfDmChannelId}, thread_ts=${threadTs}`);
+
+      // Refresh token expiration on use
+      await tokenRepository.refreshToken(userId);
 
       // Run the actual summary generation
       try {
-        const handler = new SlashCommandHandler(env);
+        const handler = new SlashCommandHandler(env, userToken);
         const result = await handler.handle({
           ...payload,
-          channel_id: dmChannelId,
+          channel_id: selfDmChannelId,
           threadTs,
         });
 
-        // Post completion message
-        await slackRepository.postStartMessage({
-          channelId: dmChannelId,
+        // Post completion message (using user token)
+        await slackRepository.postToSelfDM({
+          channelId: selfDmChannelId,
           text: result.success ? `✅ ${result.message}` : `❌ ${result.message}`,
         });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('SlashCommand error:', errorMessage);
 
-        await slackRepository.postStartMessage({
-          channelId: dmChannelId,
+        await slackRepository.postToSelfDM({
+          channelId: selfDmChannelId,
           text: `❌ Error: ${errorMessage}`,
         });
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('Background task error:', errorMessage);
-      // Can't post to Slack if we failed to open DM channel
+      // Can't post to Slack if we failed to open self-DM channel
     }
   });
 
   // Return immediate acknowledgment
   return c.json({
     response_type: 'ephemeral',
-    text: `🚀 Starting ${type} summary generation... Check your DMs with the bot!`,
+    text: `🚀 Starting ${type} summary generation... Check your self-DM (notes to self)!`,
   });
 });
 

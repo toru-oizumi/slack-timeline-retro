@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
-import { slackRoutes } from '@/presentation';
+import { oauthRoutes, slackRoutes } from '@/presentation';
 import { AppError } from '@/shared/errors';
 import type { Env } from '@/shared/types';
 
@@ -52,6 +52,7 @@ app.notFound((c) => {
 
 // Route registration
 app.route('/', slackRoutes);
+app.route('/', oauthRoutes);
 
 // Root path response
 app.get('/', (c) => {

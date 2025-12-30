@@ -109,9 +109,9 @@ deploy_cloud_run() {
 
   log_info "Deploying to Cloud Run..."
 
-  # Check if secrets are set
-  if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${SLACK_SIGNING_SECRET:-}" ]; then
-    log_warn "SLACK_BOT_TOKEN and/or SLACK_SIGNING_SECRET are not set as environment variables."
+  # Check if required secrets are set
+  if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${SLACK_SIGNING_SECRET:-}" ] || [ -z "${SLACK_CLIENT_ID:-}" ] || [ -z "${SLACK_CLIENT_SECRET:-}" ]; then
+    log_warn "Required Slack environment variables are not set."
     log_warn "You'll need to set them in Cloud Run console or update the service later."
 
     gcloud run deploy "$SERVICE_NAME" \
@@ -127,7 +127,7 @@ deploy_cloud_run() {
       --timeout 300
   else
     # Build environment variables string
-    local ENV_VARS="SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN},SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}"
+    local ENV_VARS="SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN},SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET},SLACK_CLIENT_ID=${SLACK_CLIENT_ID},SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET}"
 
     if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
       ENV_VARS="${ENV_VARS},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"

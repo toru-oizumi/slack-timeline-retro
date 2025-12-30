@@ -14,16 +14,46 @@ import { getLocaleStrings, type Locale } from '../config';
 import { SlackMessageParser } from './SlackMessageParser';
 
 /**
+ * Delay utility for rate limiting
+ */
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Rate limit configuration
+ * Slack Tier 3 APIs: 50+ requests per minute = ~1.2 seconds between requests to be safe
+ */
+const RATE_LIMIT_DELAY_MS = 1500; // 1.5 seconds between API calls
+
+/**
  * Slack repository implementation
+ * Uses bot token for posting and user token for reading
  */
 export class SlackRepository implements ISlackRepository {
-  private readonly client: WebClient;
+  private readonly botClient: WebClient;
+  private readonly userClient: WebClient;
   private readonly parser: SlackMessageParser;
   private readonly workspaceConfig: WorkspaceConfig;
   private readonly locale: Locale;
 
-  constructor(botToken: string, workspaceConfig: WorkspaceConfig, locale: Locale = 'en_US') {
-    this.client = new WebClient(botToken);
+  constructor(
+    botToken: string,
+    workspaceConfig: WorkspaceConfig,
+    locale: Locale = 'en_US',
+    userToken?: string
+  ) {
+    const retryConfig = {
+      retries: 3,
+      factor: 2,
+      minTimeout: 1000,
+      maxTimeout: 30000,
+    };
+
+    // Bot client for posting messages
+    this.botClient = new WebClient(botToken, { retryConfig });
+
+    // User client for reading messages (falls back to bot token if no user token)
+    this.userClient = new WebClient(userToken ?? botToken, { retryConfig });
+
     this.parser = new SlackMessageParser();
     this.workspaceConfig = workspaceConfig;
     this.locale = locale;
@@ -35,22 +65,102 @@ export class SlackRepository implements ISlackRepository {
     channelIds?: string[];
   }): Promise<Post[]> {
     const { userId, dateRange, channelIds } = params;
-    const allPosts: Post[] = [];
 
-    // If channel IDs are not specified, get joined channels with filtering
-    const targetChannels = channelIds ?? (await this.getFilteredChannelIds(userId));
+    // Use search.messages API for efficient fetching (includes thread replies)
+    const posts = await this.searchUserMessages(userId, dateRange);
 
-    for (const channelId of targetChannels) {
-      try {
-        const posts = await this.fetchChannelPosts(channelId, userId, dateRange);
-        allPosts.push(...posts);
-      } catch {
-        // Skip channels without access permission
-      }
+    // Filter by channel IDs if specified
+    if (channelIds && channelIds.length > 0) {
+      const channelSet = new Set(channelIds);
+      const filteredPosts = posts.filter((post) => channelSet.has(post.channelId));
+      console.log(`Filtered to ${filteredPosts.length} posts from ${channelIds.length} specified channels`);
+      return filteredPosts;
     }
 
+    // Apply workspace channel filters
+    const filteredChannelIds = await this.getFilteredChannelIds(userId);
+    const channelSet = new Set(filteredChannelIds);
+    const filteredPosts = posts.filter((post) => channelSet.has(post.channelId));
+    console.log(`Filtered to ${filteredPosts.length} posts from ${filteredChannelIds.length} allowed channels`);
+
+    return filteredPosts;
+  }
+
+  /**
+   * Search for all messages by a user within a date range
+   * Uses search.messages API which includes thread replies
+   */
+  private async searchUserMessages(userId: string, dateRange: DateRange): Promise<Post[]> {
+    const posts: Post[] = [];
+    let page = 1;
+    let totalPages = 1;
+
+    // Format dates for Slack search query (YYYY-MM-DD)
+    const afterDate = this.formatDateForSearch(dateRange.start);
+    const beforeDate = this.formatDateForSearch(dateRange.end);
+
+    // Build search query: from user, within date range
+    const query = `from:<@${userId}> after:${afterDate} before:${beforeDate}`;
+    console.log(`Searching messages with query: ${query}`);
+
+    do {
+      const response = await this.userClient.search.messages({
+        query,
+        sort: 'timestamp',
+        sort_dir: 'asc',
+        count: 100,
+        page,
+      });
+
+      if (!response.ok) {
+        throw new SlackAPIError(`search.messages failed: ${response.error}`, response.error);
+      }
+
+      const messages = response.messages;
+      if (!messages?.matches) {
+        break;
+      }
+
+      totalPages = messages.paging?.pages ?? 1;
+      console.log(`  Page ${page}/${totalPages}: ${messages.matches.length} messages`);
+
+      for (const match of messages.matches) {
+        if (match.user === userId && match.text && match.ts) {
+          posts.push(
+            Post.create({
+              id: match.ts,
+              userId: match.user,
+              text: match.text,
+              timestamp: new Date(Number.parseFloat(match.ts) * 1000),
+              channelId: match.channel?.id ?? '',
+              // Note: thread_ts not available in search results, but not needed for aggregation
+            })
+          );
+        }
+      }
+
+      page++;
+
+      // Rate limit delay for pagination
+      if (page <= totalPages) {
+        await delay(RATE_LIMIT_DELAY_MS);
+      }
+    } while (page <= totalPages);
+
+    console.log(`Found ${posts.length} total messages via search`);
+
     // Sort by timestamp
-    return allPosts.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    return posts.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  }
+
+  /**
+   * Format date for Slack search query (YYYY-MM-DD)
+   */
+  private formatDateForSearch(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   /**
@@ -92,52 +202,6 @@ export class SlackRepository implements ISlackRepository {
     return filteredChannels.map((ch) => ch.id);
   }
 
-  private async fetchChannelPosts(
-    channelId: string,
-    userId: string,
-    dateRange: DateRange
-  ): Promise<Post[]> {
-    const posts: Post[] = [];
-    let cursor: string | undefined;
-
-    const oldest = (dateRange.start.getTime() / 1000).toString();
-    const latest = (dateRange.end.getTime() / 1000).toString();
-
-    do {
-      const response = await this.client.conversations.history({
-        channel: channelId,
-        oldest,
-        latest,
-        limit: 200,
-        cursor,
-      });
-
-      if (!response.ok) {
-        throw new SlackAPIError('conversations.history failed', response.error);
-      }
-
-      const messages = response.messages ?? [];
-      for (const msg of messages) {
-        if (msg.user === userId && msg.text && msg.ts) {
-          posts.push(
-            Post.create({
-              id: msg.ts,
-              userId: msg.user,
-              text: msg.text,
-              timestamp: new Date(Number.parseFloat(msg.ts) * 1000),
-              channelId,
-              threadTs: msg.thread_ts,
-            })
-          );
-        }
-      }
-
-      cursor = response.response_metadata?.next_cursor;
-    } while (cursor);
-
-    return posts;
-  }
-
   async fetchSummariesFromThread(params: {
     channel: SlackChannel;
     type: SummaryType;
@@ -149,7 +213,8 @@ export class SlackRepository implements ISlackRepository {
       throw new SlackAPIError('Thread ts is not specified');
     }
 
-    const response = await this.client.conversations.replies({
+    // Use userClient to read from user's self-DM thread
+    const response = await this.userClient.conversations.replies({
       channel: channel.channelId,
       ts: channel.threadTs,
       limit: 1000,
@@ -162,30 +227,46 @@ export class SlackRepository implements ISlackRepository {
     const summaries: Summary[] = [];
     const messages = response.messages ?? [];
 
+    console.log(`fetchSummariesFromThread: Found ${messages.length} messages in thread`);
+
     for (const msg of messages) {
       if (!msg.text || !msg.ts) continue;
 
       const parsedType = parseSummaryType(msg.text);
-      if (parsedType !== type) continue;
+      if (parsedType !== type) {
+        // Log first 100 chars to help debug - escape newlines
+        const escaped = msg.text.substring(0, 100).replace(/\n/g, '\\n');
+        console.log(`  Skipping message (type mismatch): ${escaped}...`);
+        continue;
+      }
 
       // Year validation
-      if (!msg.text.includes(`_${year}]`)) continue;
+      if (!msg.text.includes(`_${year}]`)) {
+        console.log(`  Skipping message (year mismatch): expected ${year}`);
+        continue;
+      }
 
       const parsed = this.parser.parseSummaryMessage(msg.text, msg.ts, year);
       if (parsed) {
+        console.log(`  Parsed summary: ${parsed.dateRange.format()}`);
         summaries.push(parsed);
+      } else {
+        // Log why parsing failed - escape newlines for Cloud Logging
+        const escaped = msg.text.substring(0, 300).replace(/\n/g, '\\n');
+        console.log(`  Failed to parse message: ${escaped}`);
       }
     }
 
+    console.log(`fetchSummariesFromThread: Returning ${summaries.length} summaries`);
     return summaries;
   }
 
   /**
-   * Open a DM channel with a user
+   * Open a DM channel with a user (Bot to User)
    * Returns the channel ID that the bot can use to send messages
    */
   async openDMChannel(userId: string): Promise<string> {
-    const response = await this.client.conversations.open({
+    const response = await this.botClient.conversations.open({
       users: userId,
     });
 
@@ -197,13 +278,50 @@ export class SlackRepository implements ISlackRepository {
   }
 
   /**
+   * Open a self-DM channel (User's own DM with themselves)
+   * Uses user token to open DM to self
+   */
+  async openSelfDMChannel(userId: string): Promise<string> {
+    const response = await this.userClient.conversations.open({
+      users: userId,
+    });
+
+    if (!response.ok || !response.channel?.id) {
+      throw new SlackAPIError('conversations.open (self) failed', response.error);
+    }
+
+    return response.channel.id;
+  }
+
+  /**
+   * Post a message to self-DM using user token
+   * Returns the message ts
+   */
+  async postToSelfDM(params: { channelId: string; text: string; threadTs?: string }): Promise<string> {
+    const { channelId, text, threadTs } = params;
+
+    const response = await this.userClient.chat.postMessage({
+      channel: channelId,
+      text,
+      thread_ts: threadTs,
+      mrkdwn: true,
+    });
+
+    if (!response.ok || !response.ts) {
+      throw new SlackAPIError('chat.postMessage (self) failed', response.error);
+    }
+
+    return response.ts;
+  }
+
+  /**
    * Post a start message to create a new thread
    * Returns the message ts which can be used as thread_ts for subsequent replies
    */
   async postStartMessage(params: { channelId: string; text: string }): Promise<string> {
     const { channelId, text } = params;
 
-    const response = await this.client.chat.postMessage({
+    const response = await this.botClient.chat.postMessage({
       channel: channelId,
       text,
       mrkdwn: true,
@@ -220,7 +338,8 @@ export class SlackRepository implements ISlackRepository {
     const { channel, summary } = params;
     const localeStrings = getLocaleStrings(this.locale);
 
-    const response = await this.client.chat.postMessage({
+    // Use userClient to post as the user (to self-DM)
+    const response = await this.userClient.chat.postMessage({
       channel: channel.channelId,
       thread_ts: channel.threadTs,
       text: summary.toSlackMessage(localeStrings.periodLabel),
@@ -243,7 +362,8 @@ export class SlackRepository implements ISlackRepository {
       throw new SlackAPIError('broadcastSummary requires thread_ts', 'MISSING_THREAD_TS');
     }
 
-    const response = await this.client.chat.postMessage({
+    // Use userClient to post as the user
+    const response = await this.userClient.chat.postMessage({
       channel: channel.channelId,
       thread_ts: channel.threadTs,
       text: summary.toSlackMessage(localeStrings.periodLabel),
@@ -259,7 +379,7 @@ export class SlackRepository implements ISlackRepository {
   }
 
   async getUserInfo(userId: string): Promise<SlackUserInfo> {
-    const response = await this.client.users.info({ user: userId });
+    const response = await this.userClient.users.info({ user: userId });
 
     if (!response.ok || !response.user) {
       throw new SlackAPIError('users.info failed', response.error);
@@ -275,12 +395,13 @@ export class SlackRepository implements ISlackRepository {
   async getJoinedChannels(userId: string): Promise<SlackChannelInfo[]> {
     const channels: SlackChannelInfo[] = [];
     let cursor: string | undefined;
+    let pageCount = 0;
 
     // Build channel types based on workspace configuration
     const types = this.buildChannelTypes();
 
     do {
-      const response = await this.client.users.conversations({
+      const response = await this.userClient.users.conversations({
         user: userId,
         types,
         limit: 200,
@@ -302,8 +423,19 @@ export class SlackRepository implements ISlackRepository {
       }
 
       cursor = response.response_metadata?.next_cursor;
+      pageCount++;
+
+      // Rate limit delay for pagination
+      if (cursor) {
+        await delay(RATE_LIMIT_DELAY_MS);
+      }
     } while (cursor);
 
+    const publicCount = channels.filter((ch) => !ch.isPrivate).length;
+    const privateCount = channels.filter((ch) => ch.isPrivate).length;
+    console.log(
+      `Found ${channels.length} channels (public: ${publicCount}, private: ${privateCount}) in ${pageCount} page(s)`
+    );
     return channels;
   }
 

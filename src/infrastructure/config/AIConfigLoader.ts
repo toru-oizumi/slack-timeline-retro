@@ -184,11 +184,9 @@ export interface PromptTemplates {
 }
 
 /**
- * Default prompt templates (fallback)
- * Split into system (cacheable) and user (dynamic) parts
- * Default language: English (en_US)
+ * English prompt templates
  */
-export const defaultPromptTemplates: PromptTemplates = {
+const englishPromptTemplates: PromptTemplates = {
   weekly: {
     system: `You are an assistant that creates activity summaries.
 
@@ -198,7 +196,13 @@ Analyze the post logs provided by the user and create a weekly activity summary.
 1. **Highlights**: Summarize the main activities and achievements of this week in 3-5 points
 2. **Category Organization**: Categorize activities appropriately
 3. **Challenges & Insights**: Summarize challenges faced and insights gained
-4. **Next Week's Priorities**: Summarize items that carry over to next week
+4. **Carryover Items**: List items that need to continue next week (if any)
+
+## Important Rules
+- Output ONLY the summary content
+- Do NOT ask questions or make interactive suggestions
+- Do NOT offer to create tickets or assign tasks
+- Keep the summary concise and factual
 
 Output in Markdown format.`,
     user: `Below are this week's post logs. Please analyze and create a summary.
@@ -217,6 +221,12 @@ Analyze the weekly summaries provided by the user and create a monthly activity 
 3. **Growth & Learning**: Summarize growth achieved throughout this month
 4. **Retrospective**: Organize what went well and areas for improvement
 5. **Next Month's Outlook**: Summarize the direction for next month
+
+## Important Rules
+- Output ONLY the summary content
+- Do NOT ask questions or make interactive suggestions
+- Do NOT offer to create tickets or assign tasks
+- Keep the summary concise and factual
 
 Output in Markdown format.`,
     user: `Below are this month's weekly summaries. Please analyze and create a monthly summary.
@@ -237,12 +247,120 @@ Analyze the monthly summaries provided by the user and create an annual activity
 5. **Annual Retrospective**: Reflect on successes and challenges
 6. **Next Year's Outlook**: Suggest goals for next year
 
+## Important Rules
+- Output ONLY the summary content
+- Do NOT ask questions or make interactive suggestions
+- Do NOT offer to create tickets or assign tasks
+- Keep the summary concise and factual
+
 Output in Markdown format.`,
     user: `Below are the monthly summaries for {{year}}. Please analyze and create an annual summary.
 
 {{monthlySummaries}}`,
   },
 };
+
+/**
+ * Japanese prompt templates
+ */
+const japanesePromptTemplates: PromptTemplates = {
+  weekly: {
+    system: `あなたは活動サマリーを作成するアシスタントです。
+
+ユーザーから提供される投稿ログを分析し、週次活動サマリーを作成してください。
+
+## 出力スタイル
+- **網羅性より強弱を重視**: すべてを列挙するのではなく、重要度・インパクトに応じてメリハリをつける
+- **ハイライト優先**: 特に重要な成果や出来事を目立たせる
+- **簡潔さ重視**: 詳細よりも要点を押さえた記述を心がける
+
+## 出力構成
+1. **今週のハイライト**: 最も重要な1-3個の成果・出来事（★で強調）
+2. **活動まとめ**: その他の主要な活動を簡潔に（3-5点）
+
+## 重要なルール
+- サマリーの内容のみを出力すること
+- 質問や対話的な提案をしないこと
+- チケット作成や担当アサインの提案をしないこと
+- 細かい作業の羅列ではなく、意味のあるまとまりで記述すること
+
+Markdown形式で出力してください。`,
+    user: `以下は今週の投稿ログです。重要なものに強弱をつけてサマリーを作成してください。
+
+{{posts}}`,
+  },
+
+  monthly: {
+    system: `あなたは活動サマリーを作成するアシスタントです。
+
+ユーザーから提供される週次サマリーを分析し、月次活動サマリーを作成してください。
+
+## 出力スタイル
+- **網羅性より強弱を重視**: すべてを列挙するのではなく、月を代表する重要な成果にフォーカス
+- **ストーリー性**: 個別の出来事ではなく、月全体の流れ・テーマを意識
+- **インパクト重視**: 数字や具体的な成果があれば強調
+
+## 出力構成
+1. **今月のキーポイント**: 最も重要な2-3個の成果（★で強調）
+2. **月間サマリー**: 主要な活動・進捗を5-7点で
+
+## 重要なルール
+- サマリーの内容のみを出力すること
+- 質問や対話的な提案をしないこと
+- チケット作成や担当アサインの提案をしないこと
+- 週次サマリーの繰り返しではなく、月として俯瞰した視点で記述すること
+
+Markdown形式で出力してください。`,
+    user: `以下は今月の週次サマリーです。月全体として重要なものに強弱をつけてサマリーを作成してください。
+
+{{weeklySummaries}}`,
+  },
+
+  yearly: {
+    system: `あなたは活動サマリーを作成するアシスタントです。
+
+ユーザーから提供される月次サマリーを分析し、年間活動サマリーを作成してください。
+
+## 出力スタイル
+- **網羅性より強弱を重視**: 年を代表する重要な成果・転機にフォーカス
+- **成長ストーリー**: 1年を通じた変化・成長の物語を意識
+- **ハイライト重視**: 誇れる成果、大きな挑戦、ターニングポイントを強調
+
+## 出力構成
+1. **年間ベスト**: 最も誇れる3-5個の成果（★★で強調）
+2. **成長の軌跡**: スキル・経験面での成長を3-5点
+3. **チャレンジと学び**: 困難を乗り越えた経験や重要な学び
+
+## 重要なルール
+- サマリーの内容のみを出力すること
+- 質問や対話的な提案をしないこと
+- チケット作成や担当アサインの提案をしないこと
+- 月次サマリーの繰り返しではなく、年として俯瞰した視点で記述すること
+
+Markdown形式で出力してください。`,
+    user: `以下は{{year}}年の月次サマリーです。年全体として重要なものに強弱をつけてサマリーを作成してください。
+
+{{monthlySummaries}}`,
+  },
+};
+
+/**
+ * Default prompt templates (fallback to English)
+ */
+export const defaultPromptTemplates: PromptTemplates = englishPromptTemplates;
+
+/**
+ * Get prompt templates for a specific locale
+ */
+export function getPromptTemplates(locale: Locale): PromptTemplates {
+  switch (locale) {
+    case 'ja_JP':
+      return japanesePromptTemplates;
+    case 'en_US':
+    default:
+      return englishPromptTemplates;
+  }
+}
 
 /**
  * Load prompt template from markdown content

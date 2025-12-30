@@ -11,13 +11,15 @@ import { GenerateMonthlySummary, GenerateWeeklySummary, GenerateYearlySummary } 
  */
 export class SlashCommandHandler {
   private readonly env: Env;
+  private readonly userToken: string;
   private readonly aiService: AIService;
   private readonly targetYear: number;
   private readonly locale: Locale;
   private readonly baseWorkspaceConfig: WorkspaceConfig;
 
-  constructor(env: Env) {
+  constructor(env: Env, userToken: string) {
     this.env = env;
+    this.userToken = userToken;
     const envRecord = env as unknown as Record<string, string | undefined>;
     const config = loadConfig(envRecord);
     this.baseWorkspaceConfig = loadWorkspaceConfig(envRecord);
@@ -42,6 +44,7 @@ export class SlashCommandHandler {
 
   /**
    * Create SlackRepository with command-specific options
+   * Uses user token for reading and bot token for posting
    */
   private createSlackRepository(options: CommandOptions): SlackRepository {
     const workspaceConfig: WorkspaceConfig = {
@@ -49,7 +52,12 @@ export class SlashCommandHandler {
       includePrivateChannels:
         options.includePrivateChannels ?? this.baseWorkspaceConfig.includePrivateChannels,
     };
-    return new SlackRepository(this.env.SLACK_BOT_TOKEN, workspaceConfig, this.locale);
+    return new SlackRepository(
+      this.env.SLACK_BOT_TOKEN,
+      workspaceConfig,
+      this.locale,
+      this.userToken
+    );
   }
 
   /**

@@ -9,9 +9,9 @@ import {
   type AIGenerationConfig,
   buildPrompt,
   defaultAIConfig,
-  defaultPromptTemplates,
   getGenerationConfigForType,
   getLocaleStrings,
+  getPromptTemplates,
   type Locale,
   type PromptTemplate,
   type PromptTemplates,
@@ -37,9 +37,10 @@ export class AIService implements IAIService {
     locale?: Locale;
   }) {
     this.config = params.config ?? defaultAIConfig;
-    this.prompts = params.prompts ?? defaultPromptTemplates;
-    this.model = this.createModel(params.apiKey);
     this.locale = params.locale ?? 'en_US';
+    // Use locale-aware prompts if not explicitly provided
+    this.prompts = params.prompts ?? getPromptTemplates(this.locale);
+    this.model = this.createModel(params.apiKey);
   }
 
   /**

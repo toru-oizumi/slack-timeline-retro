@@ -24,6 +24,8 @@ describe('Slack Routes Integration', () => {
     mockEnv = {
       SLACK_BOT_TOKEN: 'xoxb-test-token',
       SLACK_SIGNING_SECRET: SIGNING_SECRET,
+      SLACK_CLIENT_ID: 'test-client-id',
+      SLACK_CLIENT_SECRET: 'test-client-secret',
       ANTHROPIC_API_KEY: 'test-api-key',
       ENVIRONMENT: 'development',
       TARGET_YEAR: '2025',
@@ -32,6 +34,8 @@ describe('Slack Routes Integration', () => {
     // Set process.env for Node.js compatibility
     process.env.SLACK_BOT_TOKEN = mockEnv.SLACK_BOT_TOKEN;
     process.env.SLACK_SIGNING_SECRET = mockEnv.SLACK_SIGNING_SECRET;
+    process.env.SLACK_CLIENT_ID = mockEnv.SLACK_CLIENT_ID;
+    process.env.SLACK_CLIENT_SECRET = mockEnv.SLACK_CLIENT_SECRET;
     process.env.ANTHROPIC_API_KEY = mockEnv.ANTHROPIC_API_KEY;
     process.env.ENVIRONMENT = mockEnv.ENVIRONMENT;
     process.env.TARGET_YEAR = mockEnv.TARGET_YEAR;

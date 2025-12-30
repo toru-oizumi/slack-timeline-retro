@@ -10,6 +10,8 @@ export interface AppConfig {
 export interface SlackConfig {
   botToken: string;
   signingSecret: string;
+  clientId: string;
+  clientSecret: string;
 }
 
 export interface AIConfig {
@@ -73,6 +75,8 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   const slack: SlackConfig = {
     botToken: requireEnv(env, 'SLACK_BOT_TOKEN'),
     signingSecret: requireEnv(env, 'SLACK_SIGNING_SECRET'),
+    clientId: requireEnv(env, 'SLACK_CLIENT_ID'),
+    clientSecret: requireEnv(env, 'SLACK_CLIENT_SECRET'),
   };
 
   // Detect AI provider and get API key
