@@ -1,2 +1,2 @@
 export { SlashCommandHandler } from './handlers';
-export { oauthRoutes, slackRoutes } from './routes';
+export { oauthRoutes, pubsubRoutes, slackRoutes } from './routes';

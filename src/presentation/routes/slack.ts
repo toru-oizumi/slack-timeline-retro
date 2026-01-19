@@ -1,11 +1,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
-import { TokenRepository } from '@/infrastructure/firestore';
+import { DateService } from '@/infrastructure/date';
+import { JobRepository, TokenRepository } from '@/infrastructure/firestore';
+import { PubSubClient } from '@/infrastructure/pubsub';
 import { SlackRepository } from '@/infrastructure/slack';
 import { defaultWorkspaceConfig } from '@/shared/config';
 import { AuthenticationError } from '@/shared/errors';
 import type { Env, SlackCommandPayload } from '@/shared/types';
-import { SlashCommandHandler } from '../handlers/SlashCommandHandler';
 
 const slackRoutes = new Hono<{ Bindings: Env }>();
 
@@ -54,15 +55,23 @@ function parseFormData(body: string): Record<string, string> {
 }
 
 /**
- * Run async task in background (Node.js compatible)
+ * Calculate total tasks based on summary type
  */
-function runInBackground(fn: () => Promise<void>): void {
-  // Use setImmediate for Node.js to schedule the task
-  setImmediate(() => {
-    fn().catch((error) => {
-      console.error('Background task error:', error);
-    });
-  });
+function calculateTotalTasks(type: 'weekly' | 'monthly' | 'yearly', year: number): number {
+  switch (type) {
+    case 'weekly':
+      return 1;
+    case 'monthly':
+      // One task per week in the month (typically 4-5)
+      return 5; // Max weeks in a month
+    case 'yearly': {
+      // One task per week in the year (52 or 53)
+      const dateService = new DateService();
+      return dateService.getAllWeeksInYear(year).length;
+    }
+    default:
+      return 1;
+  }
 }
 
 /**
@@ -155,68 +164,56 @@ slackRoutes.post('/slack/command', async (c) => {
     `User token found for: ${userId}, expires at: ${userTokenData.expiresAt.toISOString()}`
   );
 
-  // Return response immediately to avoid Slack timeout (3 seconds)
-  // All Slack API calls happen in the background
-  runInBackground(async () => {
-    try {
-      // Create SlackRepository with user token (for self-DM posting)
-      const slackRepository = new SlackRepository(
-        botToken,
-        defaultWorkspaceConfig,
-        'en_US',
-        userToken
-      );
+  // Create SlackRepository with user token (for self-DM posting)
+  const slackRepository = new SlackRepository(botToken, defaultWorkspaceConfig, 'en_US', userToken);
 
-      // Open self-DM channel (user's own DM with themselves)
-      const selfDmChannelId = await slackRepository.openSelfDMChannel(userId);
-      console.log(`Opened self-DM channel: ${selfDmChannelId} for user: ${userId}`);
+  // Open self-DM channel (user's own DM with themselves)
+  const selfDmChannelId = await slackRepository.openSelfDMChannel(userId);
+  console.log(`Opened self-DM channel: ${selfDmChannelId} for user: ${userId}`);
 
-      // Post start message to create thread (using user token)
-      const optionNotes: string[] = [];
-      if (includePrivate) optionNotes.push('📁 private channels');
-      if (includeDM) optionNotes.push('💬 DMs');
-      if (includeGroup) optionNotes.push('👥 group DMs');
-      const optionsText = optionNotes.length > 0 ? `\n_Including: ${optionNotes.join(', ')}_` : '';
-      const startMessage = `🔄 *Generating ${type} summary...*\n_Please wait while I analyze your posts._${optionsText}`;
+  // Post start message to create thread (using user token)
+  const optionNotes: string[] = [];
+  if (includePrivate) optionNotes.push('📁 private channels');
+  if (includeDM) optionNotes.push('💬 DMs');
+  if (includeGroup) optionNotes.push('👥 group DMs');
+  const optionsText = optionNotes.length > 0 ? `\n_Including: ${optionNotes.join(', ')}_` : '';
+  const startMessage = `🔄 *Generating ${type} summary...*\n_Please wait while I analyze your posts._${optionsText}`;
 
-      const threadTs = await slackRepository.postToSelfDM({
-        channelId: selfDmChannelId,
-        text: startMessage,
-      });
-      console.log(`Thread created: channel=${selfDmChannelId}, thread_ts=${threadTs}`);
-
-      // Refresh token expiration on use
-      await tokenRepository.refreshToken(userId);
-
-      // Run the actual summary generation
-      try {
-        const handler = new SlashCommandHandler(env, userToken);
-        const result = await handler.handle({
-          ...payload,
-          channel_id: selfDmChannelId,
-          threadTs,
-        });
-
-        // Post completion message (using user token)
-        await slackRepository.postToSelfDM({
-          channelId: selfDmChannelId,
-          text: result.success ? `✅ ${result.message}` : `❌ ${result.message}`,
-        });
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('SlashCommand error:', errorMessage);
-
-        await slackRepository.postToSelfDM({
-          channelId: selfDmChannelId,
-          text: `❌ Error: ${errorMessage}`,
-        });
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('Background task error:', errorMessage);
-      // Can't post to Slack if we failed to open self-DM channel
-    }
+  const threadTs = await slackRepository.postToSelfDM({
+    channelId: selfDmChannelId,
+    text: startMessage,
   });
+  console.log(`Thread created: channel=${selfDmChannelId}, thread_ts=${threadTs}`);
+
+  // Refresh token expiration on use
+  await tokenRepository.refreshToken(userId);
+
+  // Get target year from environment or default to current year
+  const targetYear = Number(env.TARGET_YEAR) || new Date().getFullYear();
+
+  // Calculate total tasks for this job type
+  const totalTasks = calculateTotalTasks(type, targetYear);
+
+  // Create job in Firestore
+  const jobRepository = new JobRepository();
+  const job = await jobRepository.createJob({
+    type,
+    year: targetYear,
+    userId,
+    channelId: selfDmChannelId,
+    threadTs,
+    userToken,
+    totalTasks,
+    options: { includePrivate, includeDM, includeGroup },
+  });
+
+  console.log(`Job created: ${job.id}, type: ${type}, totalTasks: ${totalTasks}`);
+
+  // Publish to Pub/Sub to trigger processing
+  const pubsubClient = new PubSubClient();
+  await pubsubClient.publishSummaryJob({ jobId: job.id });
+
+  console.log(`Job ${job.id} published to Pub/Sub`);
 
   // Return immediate acknowledgment
   const ackOptions: string[] = [];

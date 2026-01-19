@@ -61,6 +61,8 @@ configure_gcloud() {
   gcloud services enable run.googleapis.com --quiet
   gcloud services enable artifactregistry.googleapis.com --quiet
   gcloud services enable cloudbuild.googleapis.com --quiet
+  gcloud services enable pubsub.googleapis.com --quiet
+  gcloud services enable firestore.googleapis.com --quiet
 }
 
 # Create Artifact Registry repository if it doesn't exist
@@ -122,7 +124,7 @@ deploy_cloud_run() {
       --port 8080 \
       --memory 512Mi \
       --cpu 1 \
-      --min-instances 1 \
+      --min-instances 0 \
       --max-instances 10 \
       --timeout 3600 \
       --no-cpu-throttling
@@ -182,7 +184,7 @@ deploy_cloud_run() {
       --port 8080 \
       --memory 512Mi \
       --cpu 1 \
-      --min-instances 1 \
+      --min-instances 0 \
       --max-instances 10 \
       --timeout 3600 \
       --no-cpu-throttling \
@@ -227,7 +229,16 @@ main() {
   echo "Slack App Configuration:" >&2
   echo "  Slash Command URL: ${SERVICE_URL}/slack/command" >&2
   echo "  Health Check URL:  ${SERVICE_URL}/health" >&2
+  echo "" >&2
+  echo "Pub/Sub Endpoints:" >&2
+  echo "  Orchestrator:  ${SERVICE_URL}/pubsub/orchestrate" >&2
+  echo "  Week Worker:   ${SERVICE_URL}/pubsub/week-worker" >&2
+  echo "  Posting:       ${SERVICE_URL}/pubsub/posting" >&2
   echo "================================================" >&2
+  echo "" >&2
+
+  log_info "Next step: Run Pub/Sub setup script to configure push subscriptions:"
+  echo "  ./scripts/setup-pubsub.sh" >&2
   echo "" >&2
 
   if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
