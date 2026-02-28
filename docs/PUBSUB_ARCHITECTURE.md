@@ -77,6 +77,7 @@ interface JobDocument {
   type: 'weekly' | 'monthly' | 'yearly';
   year: number;
   month?: number;
+  pipelineId?: string;  // 設定パイプライン使用時のみ。省略時はレガシーフロー
   userId: string;
   channelId: string;
   threadTs: string;
@@ -102,11 +103,36 @@ interface WeekTaskDocument {
   dateRange: { start: string; end: string };
   status: 'pending' | 'processing' | 'completed' | 'error';
   content?: string;
+  // Pipeline path で使用するフィールド (WeekTaskMessage から受け継ぐ)
+  // pipelineId / stageId は Pub/Sub メッセージ側に保持するため WeekTaskDocument には含まない
   error?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 ```
+
+## パイプラインパス（設定外部化）
+
+`PIPELINE_IDS` 環境変数を設定すると、対応する Slack コマンドはレガシーフローではなく YAML パイプライン設定で処理されます。
+
+### 処理の違い
+
+| フェーズ | レガシーパス | パイプラインパス |
+|---------|------------|--------------|
+| Orchestrate | `job.type` に応じて固定のタスク分割 | `stages[0].unit` に応じてタスク分割 |
+| Week Worker | `GenerateWeeklySummary` ユースケースを呼び出し | `aiService.generateForStage(stage.prompt, postsText)` を呼び出し |
+| Posting | `job.type` に応じた固定集約ロジック | `stages[1..]` をループして動的集約・投稿 |
+
+### パイプライン設定ファイル
+
+```
+config/
+└── pipelines/
+    ├── summarize.yaml   # 参照実装（既存の週→月→年フローを YAML 化）
+    └── <id>.yaml        # カスタムパイプライン
+```
+
+詳細は README の「Pipeline Configuration」セクションを参照。
 
 ## セットアップ手順
 
