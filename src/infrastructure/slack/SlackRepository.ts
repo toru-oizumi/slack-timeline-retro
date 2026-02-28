@@ -1,5 +1,5 @@
 import { WebClient } from '@slack/web-api';
-import type { ISlackRepository, SlackChannelInfo, SlackUserInfo } from '@/domain';
+import type { ISlackRepository, SlackChannelInfo, SlackUserInfo, ThreadSamplingConfig } from '@/domain';
 import {
   type DateRange,
   Post,
@@ -7,6 +7,7 @@ import {
   type SlackChannel,
   type Summary,
   type SummaryType,
+  Thread,
 } from '@/domain';
 import type { WorkspaceConfig } from '@/shared/config';
 import { SlackAPIError } from '@/shared/errors';
@@ -23,6 +24,16 @@ const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * Slack Tier 3 APIs: 50+ requests per minute = ~1.2 seconds between requests to be safe
  */
 const RATE_LIMIT_DELAY_MS = 1500; // 1.5 seconds between API calls
+
+/**
+ * Intermediate type for thread parent messages fetched from conversations.history
+ */
+interface ThreadParent {
+  ts: string;
+  text: string;
+  replyCount: number;
+  reactionCount: number;
+}
 
 /**
  * Slack repository implementation
@@ -429,6 +440,145 @@ export class SlackRepository implements ISlackRepository {
       `Found ${channels.length} channels (public: ${publicCount}, private: ${privateCount}) in ${pageCount} page(s)`
     );
     return channels;
+  }
+
+  async fetchChannelThreads(params: {
+    channelId: string;
+    dateRange: DateRange;
+    sampling: ThreadSamplingConfig;
+  }): Promise<Thread[]> {
+    const { channelId, dateRange, sampling } = params;
+
+    // 1. Fetch all thread parent messages in the date range
+    const parents = await this.fetchThreadParents(channelId, dateRange);
+
+    // 2. Apply sampling strategy to select top threads
+    const sampled = this.sampleThreads(parents, sampling);
+
+    // 3. Fetch replies for each sampled thread
+    const threads: Thread[] = [];
+    for (const parent of sampled) {
+      const replies = await this.fetchThreadReplies(channelId, parent.ts);
+      threads.push(
+        Thread.create({
+          id: parent.ts,
+          channelId,
+          parentText: parent.text,
+          replies,
+          replyCount: parent.replyCount,
+          reactionCount: parent.reactionCount,
+          timestamp: new Date(Number.parseFloat(parent.ts) * 1000),
+        })
+      );
+      await delay(RATE_LIMIT_DELAY_MS);
+    }
+
+    return threads;
+  }
+
+  /**
+   * Fetch thread parent messages from a channel within a date range.
+   * Only returns messages that have replies (reply_count > 0).
+   */
+  private async fetchThreadParents(
+    channelId: string,
+    dateRange: DateRange
+  ): Promise<ThreadParent[]> {
+    const parents: ThreadParent[] = [];
+    let cursor: string | undefined;
+
+    const oldest = String(dateRange.start.getTime() / 1000);
+    const latest = String(dateRange.end.getTime() / 1000);
+
+    do {
+      const response = await this.botClient.conversations.history({
+        channel: channelId,
+        oldest,
+        latest,
+        limit: 200,
+        cursor,
+      });
+
+      if (!response.ok) {
+        throw new SlackAPIError(`conversations.history failed for ${channelId}`, response.error);
+      }
+
+      for (const msg of response.messages ?? []) {
+        if (!msg.ts || !msg.text) continue;
+        // Only include messages that are thread starters (have replies)
+        const replyCount = (msg as { reply_count?: number }).reply_count ?? 0;
+        if (replyCount === 0) continue;
+
+        const reactionCount = ((msg as { reactions?: Array<{ count: number }> }).reactions ?? [])
+          .reduce((sum, r) => sum + r.count, 0);
+
+        parents.push({ ts: msg.ts, text: msg.text, replyCount, reactionCount });
+      }
+
+      cursor = response.response_metadata?.next_cursor;
+      if (cursor) {
+        await delay(RATE_LIMIT_DELAY_MS);
+      }
+    } while (cursor);
+
+    return parents;
+  }
+
+  /**
+   * Apply sampling strategy and return selected thread parents.
+   */
+  private sampleThreads(parents: ThreadParent[], sampling: ThreadSamplingConfig): ThreadParent[] {
+    const { strategy, maxThreadsPerWeek } = sampling;
+
+    let sorted: ThreadParent[];
+    switch (strategy) {
+      case 'top_engaged':
+        sorted = [...parents].sort(
+          (a, b) => b.reactionCount + b.replyCount - (a.reactionCount + a.replyCount)
+        );
+        break;
+      case 'recent':
+        // ts is a Unix timestamp string; higher = more recent
+        sorted = [...parents].sort((a, b) => b.ts.localeCompare(a.ts));
+        break;
+      case 'random':
+        sorted = [...parents].sort(() => Math.random() - 0.5);
+        break;
+      default: {
+        const _exhaustive: never = strategy;
+        throw new Error(`Unknown sampling strategy: ${_exhaustive}`);
+      }
+    }
+
+    return sorted.slice(0, maxThreadsPerWeek);
+  }
+
+  /**
+   * Fetch replies for a thread (excludes the parent message itself).
+   */
+  private async fetchThreadReplies(channelId: string, threadTs: string): Promise<Post[]> {
+    const response = await this.botClient.conversations.replies({
+      channel: channelId,
+      ts: threadTs,
+      limit: 100,
+    });
+
+    if (!response.ok) {
+      throw new SlackAPIError(`conversations.replies failed for ${threadTs}`, response.error);
+    }
+
+    const messages = response.messages ?? [];
+    // First message is the parent; skip it
+    return messages.slice(1).map((msg) =>
+      Post.create({
+        id: msg.ts ?? '',
+        userId: (msg as { user?: string }).user ?? '',
+        text: msg.text ?? '',
+        timestamp: new Date(Number.parseFloat(msg.ts ?? '0') * 1000),
+        channelId,
+        threadTs,
+      })
+    );
   }
 
   /**

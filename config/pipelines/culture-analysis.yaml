@@ -1,0 +1,105 @@
+id: culture-analysis
+command: /analyze-culture
+description: "Org culture analysis with year-over-year comparison"
+
+slackInput:
+  type: channel_threads
+  channelIds:
+    - C0123456789 # Replace with actual channel IDs (e.g. #general, #engineering)
+  sampling:
+    strategy: top_engaged # Score by reactions + replies to surface high-signal threads
+    maxThreadsPerWeek: 5  # Per channel, per week. Increase for broader coverage.
+
+stages:
+  # Stage 1: Compress raw threads into weekly digests (not culture analysis yet)
+  - id: weekly_digest
+    unit: week
+    prompt:
+      system: |
+        You extract organizational signals from Slack threads.
+        Focus on factual observations, not cultural interpretation.
+      user: |
+        From the following Slack threads, extract:
+        - Main topics discussed
+        - Communication patterns (how people interact with each other)
+        - Decision points or action items mentioned
+
+        Threads:
+        {{input}}
+
+  # Stage 2: Compress weekly digests into monthly summaries
+  - id: monthly_digest
+    unit: month
+    inputSource: weekly_digest
+    prompt:
+      system: |
+        You consolidate weekly thread digests into concise monthly summaries.
+      user: |
+        Consolidate these weekly digests into a monthly summary.
+        Preserve key signals about communication style, topics, and patterns.
+
+        Weekly digests:
+        {{input}}
+
+  # Stage 3: Analyze org culture from 12 months of data
+  - id: yearly_culture
+    unit: year
+    inputSource: monthly_digest
+    prompt:
+      system: |
+        You are an organizational culture expert who analyzes communication patterns.
+        Use the monthly data to characterize the org's culture for this year.
+      user: |
+        Based on 12 months of Slack communication data, write a culture profile covering:
+
+        ## Communication Style
+        Describe how people communicate (direct/indirect, formal/casual, async/sync preference).
+
+        ## Decision-Making Patterns
+        How are decisions made and communicated? Who participates?
+
+        ## Collaboration Behaviors
+        How do people work together? What does teamwork look like?
+
+        ## Values in Practice
+        What values are visible through behavior (not stated values)?
+
+        ## Key Themes
+        What topics dominated the year?
+
+        Monthly data:
+        {{input}}
+
+  # Stage 4: Compare culture across years (only runs when multiple years are specified)
+  - id: yoy_report
+    unit: all_years
+    inputSource: yearly_culture
+    prompt:
+      system: |
+        You are an organizational culture change expert.
+        Identify meaningful shifts in culture across years.
+      user: |
+        Compare org culture across the following years and write a year-over-year analysis:
+
+        ## Cultural Trajectory
+        How has the overall culture evolved?
+
+        ## Key Shifts
+        What changed most significantly and when?
+
+        ## Stable Elements
+        What aspects of culture have remained consistent?
+
+        ## Turning Points
+        Were there specific moments or periods that drove cultural change?
+
+        ## Outlook
+        Based on the trajectory, what cultural patterns are likely to continue?
+
+        Year-by-year culture profiles:
+        {{input}}
+
+output:
+  destination: self_dm
+  thread: false
+  broadcastFinal: true

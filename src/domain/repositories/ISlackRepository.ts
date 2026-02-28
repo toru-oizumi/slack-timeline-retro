@@ -1,5 +1,6 @@
 import type { Post } from '../entities/Post';
 import type { Summary } from '../entities/Summary';
+import type { Thread } from '../entities/Thread';
 import type { DateRange } from '../value-objects/DateRange';
 import type { SlackChannel } from '../value-objects/SlackChannel';
 import type { SummaryType } from '../value-objects/SummaryType';
@@ -45,6 +46,16 @@ export interface ISlackRepository {
    * Get channels the user has joined
    */
   getJoinedChannels(userId: string): Promise<SlackChannelInfo[]>;
+
+  /**
+   * Fetch sampled threads from a channel within the given date range.
+   * Used for org culture analysis.
+   */
+  fetchChannelThreads(params: {
+    channelId: string;
+    dateRange: DateRange;
+    sampling: ThreadSamplingConfig;
+  }): Promise<Thread[]>;
 }
 
 /**
@@ -63,4 +74,13 @@ export interface SlackChannelInfo {
   id: string;
   name: string;
   isPrivate: boolean;
+}
+
+/**
+ * Sampling configuration for fetchChannelThreads.
+ * Mirrors pipeline SamplingConfig but kept in domain to avoid layer violation.
+ */
+export interface ThreadSamplingConfig {
+  strategy: 'top_engaged' | 'random' | 'recent';
+  maxThreadsPerWeek: number;
 }

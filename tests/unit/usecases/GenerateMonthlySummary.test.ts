@@ -18,6 +18,7 @@ describe('GenerateMonthlySummary', () => {
       broadcastSummary: vi.fn(),
       getUserInfo: vi.fn(),
       getJoinedChannels: vi.fn(),
+      fetchChannelThreads: vi.fn(),
     };
 
     mockAIService = {

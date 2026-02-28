@@ -29,6 +29,9 @@ export class StageUnitMapper {
       case 'day':
       case 'quarter':
         throw new Error(`StageUnit "${unit}" is not yet supported`);
+      case 'all_years':
+        // all_years is a cross-year aggregation stage handled by the posting worker, not by date ranges
+        throw new Error(`StageUnit "all_years" cannot be mapped to date ranges`);
     }
   }
 }
