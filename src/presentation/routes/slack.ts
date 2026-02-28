@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { DateService } from '@/infrastructure/date';
 import { JobRepository, TokenRepository } from '@/infrastructure/firestore';
+import { PipelineConfigRepository } from '@/infrastructure/pipeline';
 import { PubSubClient } from '@/infrastructure/pubsub';
 import { SlackRepository } from '@/infrastructure/slack';
 import { defaultWorkspaceConfig } from '@/shared/config';
@@ -136,11 +137,21 @@ slackRoutes.post('/slack/command', async (c) => {
     trigger_id: formData.trigger_id ?? '',
   };
 
-  // Parse command to get type (defaults to yearly if not specified)
-  const { type, includePrivate, includeDM, includeGroup } = parseCommand(payload.text);
-
   const botToken = env.SLACK_BOT_TOKEN;
   const userId = payload.user_id;
+
+  // Check if this command is handled by a pipeline config
+  const pipelineIds = env.PIPELINE_IDS ? env.PIPELINE_IDS.split(',').map((s) => s.trim()) : [];
+  let activePipelineId: string | undefined;
+  if (pipelineIds.length > 0) {
+    const pipelineRepo = new PipelineConfigRepository();
+    pipelineRepo.loadAll(pipelineIds);
+    const matched = pipelineRepo.findByCommand(payload.command);
+    activePipelineId = matched?.id;
+  }
+
+  // Parse command to get type (defaults to yearly if not specified)
+  const { type, includePrivate, includeDM, includeGroup } = parseCommand(payload.text);
 
   // Check for user token (OAuth authorization)
   const tokenRepository = new TokenRepository();
@@ -199,6 +210,7 @@ slackRoutes.post('/slack/command', async (c) => {
   const job = await jobRepository.createJob({
     type,
     year: targetYear,
+    pipelineId: activePipelineId,
     userId,
     channelId: selfDmChannelId,
     threadTs,

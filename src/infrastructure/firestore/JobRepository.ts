@@ -9,6 +9,8 @@ export interface JobDocument {
   type: SummaryType;
   year: number;
   month?: number;
+  /** Pipeline ID when using configurable pipelines. Absent for legacy jobs. */
+  pipelineId?: string;
   userId: string;
   channelId: string;
   threadTs: string;
@@ -47,6 +49,8 @@ export interface CreateJobParams {
   type: SummaryType;
   year: number;
   month?: number;
+  /** Pipeline ID when using configurable pipelines. Omit for legacy jobs. */
+  pipelineId?: string;
   userId: string;
   channelId: string;
   threadTs: string;
@@ -99,6 +103,7 @@ export class JobRepository {
       type: params.type,
       year: params.year,
       month: params.month,
+      pipelineId: params.pipelineId,
       userId: params.userId,
       channelId: params.channelId,
       threadTs: params.threadTs,
@@ -144,6 +149,7 @@ export class JobRepository {
       type: data.type,
       year: data.year,
       month: data.month,
+      pipelineId: data.pipelineId,
       userId: data.userId,
       channelId: data.channelId,
       threadTs: data.threadTs,
@@ -406,6 +412,7 @@ export class JobRepository {
         type: data.type,
         year: data.year,
         month: data.month,
+        pipelineId: data.pipelineId,
         userId: data.userId,
         channelId: data.channelId,
         threadTs: data.threadTs,

@@ -20,6 +20,15 @@ export interface IAIService {
    * Generate yearly summary from monthly summaries
    */
   generateYearlySummary(monthlySummaries: Summary[]): Promise<GeneratedContent>;
+
+  /**
+   * Generate content for a pipeline stage using configurable prompts.
+   * The {{input}} placeholder in the user prompt is replaced with the given input text.
+   */
+  generateForStage(params: {
+    prompt: { system: string; user: string };
+    input: string;
+  }): Promise<GeneratedContent>;
 }
 
 /**

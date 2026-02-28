@@ -68,6 +68,7 @@ describe('Summary Generation Flow', () => {
         content: '年次サマリーコンテンツ',
         metadata: { tokensUsed: 500, model: 'test', generatedAt: new Date() },
       } as GeneratedContent),
+      generateForStage: vi.fn(),
     };
 
     channel = SlackChannel.createDM('D12345', '1736000000.000000');

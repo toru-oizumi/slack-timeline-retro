@@ -121,6 +121,18 @@ export class AIService implements IAIService {
     return this.generate(messages, generationConfig);
   }
 
+  async generateForStage(params: {
+    prompt: { system: string; user: string };
+    input: string;
+  }): Promise<GeneratedContent> {
+    const messages = this.buildMessages(
+      { system: params.prompt.system, user: params.prompt.user },
+      { input: params.input }
+    );
+    const generationConfig = getGenerationConfigForType(this.config, 'weekly');
+    return this.generate(messages, generationConfig);
+  }
+
   async generateYearlySummary(monthlySummaries: Summary[]): Promise<GeneratedContent> {
     if (monthlySummaries.length === 0) {
       throw new AIServiceError('Monthly summaries array is empty');
