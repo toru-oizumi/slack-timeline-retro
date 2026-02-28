@@ -378,56 +378,68 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
       case 'yearly': {
         // For yearly, we need to:
         // 1. Group weeks by month
-        // 2. Generate monthly summaries
-        // 3. Generate yearly summary from monthly summaries
-        // 4. Post everything sequentially
+        // 2. Generate monthly summaries in parallel
+        // 3. Post monthly summaries to Slack sequentially (preserve order + rate limiting)
+        // 4. Generate and post yearly summary
 
         const groupedByMonth = groupWeeksByMonth(tasksWithContent);
 
-        // Generate monthly summaries
-        const monthlySummaries: Summary[] = [];
+        // Sort month entries to preserve chronological order
+        const monthEntries = Object.entries(groupedByMonth)
+          .map(([month, weeks]) => ({ monthNum: Number(month), weeks }))
+          .sort((a, b) => a.monthNum - b.monthNum);
 
-        for (const [month, weeks] of Object.entries(groupedByMonth)) {
-          const monthNum = Number(month);
-          const weeklySummaries = weeks
-            .map((w, index) => {
-              if (!w.content || w.content.length === 0) return null;
-              const start = new Date(w.dateRange.start);
-              const end = new Date(w.dateRange.end);
-              return Summary.createWeekly({
-                content: w.content,
-                dateRange: DateRange.create(start, end),
-                year: job.year,
-                weekNumber: index + 1,
-              });
-            })
-            .filter((s): s is Summary => s !== null);
+        // Generate all monthly summaries in parallel
+        const monthlyResults = await Promise.all(
+          monthEntries.map(async ({ monthNum, weeks }) => {
+            const weeklySummaries = weeks
+              .map((w, index) => {
+                if (!w.content || w.content.length === 0) return null;
+                const start = new Date(w.dateRange.start);
+                const end = new Date(w.dateRange.end);
+                return Summary.createWeekly({
+                  content: w.content,
+                  dateRange: DateRange.create(start, end),
+                  year: job.year,
+                  weekNumber: index + 1,
+                });
+              })
+              .filter((s): s is Summary => s !== null);
 
-          if (weeklySummaries.length > 0) {
+            if (weeklySummaries.length === 0) return null;
+
             const monthly = await aiService.generateMonthlySummary(weeklySummaries);
-
-            // Post monthly summary
-            await slackRepository.postToSelfDM({
-              channelId: job.channelId,
-              text: `📅 *${getMonthName(monthNum, locale)}*\n\n${monthly.content}`,
-              threadTs: job.threadTs,
-            });
-
-            // Create monthly Summary object for yearly aggregation
             const monthStart = new Date(job.year, monthNum - 1, 1);
             const monthEnd = new Date(job.year, monthNum, 0); // Last day of month
-            monthlySummaries.push(
-              Summary.createMonthly({
+
+            return {
+              monthNum,
+              content: monthly.content,
+              summary: Summary.createMonthly({
                 content: monthly.content,
                 dateRange: DateRange.create(monthStart, monthEnd),
                 year: job.year,
                 month: monthNum,
-              })
-            );
+              }),
+            };
+          })
+        );
 
-            // Add small delay between posts to avoid rate limiting
-            await sleep(1000);
-          }
+        // Filter out months with no posts
+        const validMonths = monthlyResults.filter(
+          (r): r is NonNullable<typeof r> => r !== null
+        );
+
+        // Post monthly summaries to Slack sequentially (preserve order + rate limiting)
+        const monthlySummaries: Summary[] = [];
+        for (const { monthNum, content, summary } of validMonths) {
+          await slackRepository.postToSelfDM({
+            channelId: job.channelId,
+            text: `📅 *${getMonthName(monthNum, locale)}*\n\n${content}`,
+            threadTs: job.threadTs,
+          });
+          monthlySummaries.push(summary);
+          await sleep(1000);
         }
 
         // Generate and post yearly summary

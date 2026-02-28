@@ -1,1 +1,1 @@
-export { SlashCommandHandler } from './SlashCommandHandler';
+export {};
