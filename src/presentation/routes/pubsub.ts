@@ -8,6 +8,7 @@ import {
   PipelineConfigRepository,
   StageUnitMapper,
   type StageUnit,
+  type ChannelThreadsInput,
 } from '@/infrastructure/pipeline';
 import {
   decodePubSubMessage,
@@ -138,21 +139,38 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
       const pipelineRepo = new PipelineConfigRepository();
       const pipeline = pipelineRepo.getById(job.pipelineId);
       const baseStage = pipeline.stages[0];
-
       const stageUnitMapper = new StageUnitMapper(dateService);
       const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, job.year);
 
-      const weekTasks: WeekTaskMessage[] = ranges.map((range, index) => ({
-        jobId: job.id,
-        weekNumber: index + 1,
-        year: job.year,
-        dateRange: {
-          start: range.start.toISOString(),
-          end: range.end.toISOString(),
-        },
-        pipelineId: job.pipelineId,
-        stageId: baseStage.id,
-      }));
+      const weekTasks: WeekTaskMessage[] =
+        pipeline.slackInput.type === 'channel_threads'
+          ? // channel_threads: generate one task per (channel × date range)
+            (pipeline.slackInput as ChannelThreadsInput).channelIds.flatMap((channelId, chIdx) =>
+              ranges.map((range, weekIdx) => ({
+                jobId: job.id,
+                weekNumber: chIdx * ranges.length + weekIdx + 1,
+                year: job.year,
+                dateRange: {
+                  start: range.start.toISOString(),
+                  end: range.end.toISOString(),
+                },
+                pipelineId: job.pipelineId,
+                stageId: baseStage.id,
+                channelId,
+              }))
+            )
+          : // user_posts: one task per date range (existing behavior)
+            ranges.map((range, index) => ({
+              jobId: job.id,
+              weekNumber: index + 1,
+              year: job.year,
+              dateRange: {
+                start: range.start.toISOString(),
+                end: range.end.toISOString(),
+              },
+              pipelineId: job.pipelineId,
+              stageId: baseStage.id,
+            }));
 
       await jobRepository.createWeekTasksBatch(weekTasks);
       await pubsubClient.publishWeekTasksBatch(weekTasks);
@@ -282,21 +300,47 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
       const endDate = new Date(message.dateRange.end);
       const dateRange = DateRange.create(startDate, endDate);
 
-      const posts = await slackRepository.fetchUserPosts({ userId: job.userId, dateRange });
-
-      if (posts.length === 0) {
-        content = '';
-        console.log(`Pipeline week ${message.weekNumber}: No posts found for job ${job.id}`);
-      } else {
-        const postsText = posts.map((p) => p.toSummaryFormat()).join('\n');
-        const generated = await aiService.generateForStage({
-          prompt: stage.prompt,
-          input: postsText,
+      if (message.channelId) {
+        // === channel_threads path ===
+        const sampling = (pipeline.slackInput as ChannelThreadsInput).sampling;
+        const threads = await slackRepository.fetchChannelThreads({
+          channelId: message.channelId,
+          dateRange,
+          sampling,
         });
-        content = generated.content;
-        console.log(
-          `Pipeline week ${message.weekNumber} summary generated for job ${job.id}`
-        );
+
+        if (threads.length === 0) {
+          content = '';
+          console.log(
+            `Pipeline week ${message.weekNumber}: No threads found in channel ${message.channelId}`
+          );
+        } else {
+          const threadsText = threads.map((t) => t.toSummaryFormat()).join('\n\n---\n\n');
+          const generated = await aiService.generateForStage({
+            prompt: stage.prompt,
+            input: threadsText,
+          });
+          content = generated.content;
+          console.log(
+            `Pipeline week ${message.weekNumber} (channel ${message.channelId}) digest generated for job ${job.id}`
+          );
+        }
+      } else {
+        // === user_posts path (existing) ===
+        const posts = await slackRepository.fetchUserPosts({ userId: job.userId, dateRange });
+
+        if (posts.length === 0) {
+          content = '';
+          console.log(`Pipeline week ${message.weekNumber}: No posts found for job ${job.id}`);
+        } else {
+          const postsText = posts.map((p) => p.toSummaryFormat()).join('\n');
+          const generated = await aiService.generateForStage({
+            prompt: stage.prompt,
+            input: postsText,
+          });
+          content = generated.content;
+          console.log(`Pipeline week ${message.weekNumber} summary generated for job ${job.id}`);
+        }
       }
     }
 
@@ -627,16 +671,20 @@ function getGroupKey(date: Date, unit: StageUnit): string {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const quarter = Math.ceil(month / 3);
+  const day = date.getDate();
 
   switch (unit) {
-    case 'month':
-      return `${year}-${String(month).padStart(2, '0')}`;
-    case 'quarter':
-      return `${year}-Q${quarter}`;
+    case 'all_years':
+      return 'all';
     case 'year':
       return `${year}`;
-    default:
+    case 'quarter':
+      return `${year}-Q${quarter}`;
+    case 'month':
       return `${year}-${String(month).padStart(2, '0')}`;
+    case 'week':
+    case 'day':
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   }
 }
 

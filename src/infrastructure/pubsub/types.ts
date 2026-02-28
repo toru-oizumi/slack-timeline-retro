@@ -50,6 +50,8 @@ export interface WeekTaskMessage {
   pipelineId?: string;
   /** Stage ID within the pipeline (typically the base stage). */
   stageId?: string;
+  /** Channel ID for channel_threads input type. Absent for user_posts. */
+  channelId?: string;
 }
 
 /**
