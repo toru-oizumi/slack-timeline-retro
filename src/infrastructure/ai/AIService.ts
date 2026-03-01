@@ -124,12 +124,19 @@ export class AIService implements IAIService {
   async generateForStage(params: {
     prompt: { system: string; user: string };
     input: string;
+    stageType?: string;
   }): Promise<GeneratedContent> {
     const messages = this.buildMessages(
       { system: params.prompt.system, user: params.prompt.user },
       { input: params.input }
     );
-    const generationConfig = getGenerationConfigForType(this.config, 'weekly');
+    const validTypes = ['weekly', 'monthly', 'yearly'] as const;
+    type GenerationConfigType = (typeof validTypes)[number];
+    const configType: GenerationConfigType =
+      params.stageType && (validTypes as readonly string[]).includes(params.stageType)
+        ? (params.stageType as GenerationConfigType)
+        : 'weekly';
+    const generationConfig = getGenerationConfigForType(this.config, configType);
     return this.generate(messages, generationConfig);
   }
 

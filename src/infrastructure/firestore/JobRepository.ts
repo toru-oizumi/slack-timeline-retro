@@ -361,6 +361,18 @@ export class JobRepository {
   }
 
   /**
+   * Update the total task count for a job.
+   * Call this in the orchestrate handler once the actual number of tasks is known.
+   */
+  async updateTotalTasks(jobId: string, totalTasks: number): Promise<void> {
+    await this.db.collection(this.jobsCollection).doc(jobId).update({
+      totalTasks,
+      updatedAt: Timestamp.now(),
+    });
+    console.log(`Job ${jobId} totalTasks updated to: ${totalTasks}`);
+  }
+
+  /**
    * Check if all tasks are complete
    */
   async isJobComplete(jobId: string): Promise<boolean> {

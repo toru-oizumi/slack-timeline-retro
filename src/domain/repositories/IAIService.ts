@@ -28,6 +28,8 @@ export interface IAIService {
   generateForStage(params: {
     prompt: { system: string; user: string };
     input: string;
+    /** Generation config type to use (e.g. 'weekly', 'monthly', 'yearly'). Defaults to 'weekly'. */
+    stageType?: string;
   }): Promise<GeneratedContent>;
 }
 
