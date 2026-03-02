@@ -5,11 +5,16 @@ import type { PipelineConfig } from './types';
 import { PipelineConfigSchema } from './types';
 
 /**
+ * Module-level cache survives across requests within the same Cloud Run instance,
+ * avoiding repeated synchronous file IO per request.
+ */
+const moduleCache = new Map<string, PipelineConfig>();
+
+/**
  * Repository for loading and caching pipeline configurations from YAML files.
  * YAMLファイルからパイプライン設定を読み込み、キャッシュする。
  */
 export class PipelineConfigRepository {
-  private readonly cache = new Map<string, PipelineConfig>();
   private readonly configDir: string;
 
   constructor(configDir?: string) {
@@ -21,7 +26,14 @@ export class PipelineConfigRepository {
    * Parses and validates the YAML file on first access, then caches the result.
    */
   getById(pipelineId: string): PipelineConfig {
-    const cached = this.cache.get(pipelineId);
+    // Prevent path traversal: only allow alphanumeric, hyphens, and underscores
+    if (!/^[a-z0-9_-]+$/i.test(pipelineId)) {
+      throw new Error(
+        `Invalid pipeline ID "${pipelineId}": must match [a-z0-9_-]+`
+      );
+    }
+
+    const cached = moduleCache.get(pipelineId);
     if (cached) {
       return cached;
     }
@@ -48,7 +60,7 @@ export class PipelineConfigRepository {
       );
     }
 
-    this.cache.set(pipelineId, result.data);
+    moduleCache.set(pipelineId, result.data);
     return result.data;
   }
 
@@ -64,7 +76,7 @@ export class PipelineConfigRepository {
    * Find a pipeline config by Slack command string (e.g. '/summarize-2025').
    */
   findByCommand(command: string): PipelineConfig | undefined {
-    for (const config of this.cache.values()) {
+    for (const config of moduleCache.values()) {
       if (config.command === command) {
         return config;
       }
@@ -74,6 +86,6 @@ export class PipelineConfigRepository {
 
   /** Clear the in-memory cache (mainly for testing). */
   clearCache(): void {
-    this.cache.clear();
+    moduleCache.clear();
   }
 }

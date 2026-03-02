@@ -153,7 +153,9 @@ slackRoutes.post('/slack/command', async (c) => {
   }
 
   // Parse command to get type (defaults to yearly if not specified)
-  const { type, includePrivate, includeDM, includeGroup } = parseCommand(payload.text);
+  const { type: parsedType, includePrivate, includeDM, includeGroup } = parseCommand(payload.text);
+  // Pipeline jobs always run as 'yearly' — the base stage unit controls the range granularity
+  const type = activePipelineId ? 'yearly' : parsedType;
 
   // Check for user token (OAuth authorization)
   const tokenRepository = new TokenRepository();

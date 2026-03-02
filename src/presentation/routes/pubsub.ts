@@ -139,33 +139,43 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
       }
     } else {
       // === Pipeline path ===
-      const pipelineRepo = new PipelineConfigRepository();
-      const pipeline = pipelineRepo.getById(job.pipelineId);
-      const baseStage = pipeline.stages[0];
+      // Wrap in try/catch so config errors mark the job as failed rather than
+      // leaving it stuck in 'processing' with no tasks.
+      try {
+        const pipelineRepo = new PipelineConfigRepository();
+        const pipeline = pipelineRepo.getById(job.pipelineId);
+        const baseStage = pipeline.stages[0];
 
-      const stageUnitMapper = new StageUnitMapper(dateService);
-      const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, job.year);
+        const stageUnitMapper = new StageUnitMapper(dateService);
+        const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, job.year);
 
-      const weekTasks: WeekTaskMessage[] = ranges.map((range, index) => ({
-        jobId: job.id,
-        weekNumber: index + 1,
-        year: job.year,
-        dateRange: {
-          start: range.start.toISOString(),
-          end: range.end.toISOString(),
-        },
-        pipelineId: job.pipelineId,
-        stageId: baseStage.id,
-      }));
+        const weekTasks: WeekTaskMessage[] = ranges.map((range, index) => ({
+          jobId: job.id,
+          weekNumber: index + 1,
+          year: job.year,
+          dateRange: {
+            start: range.start.toISOString(),
+            end: range.end.toISOString(),
+          },
+          pipelineId: job.pipelineId,
+          stageId: baseStage.id,
+        }));
 
-      // Update totalTasks to the actual number of base-stage ranges
-      await jobRepository.updateTotalTasks(job.id, weekTasks.length);
+        // Update totalTasks to the actual number of base-stage ranges
+        await jobRepository.updateTotalTasks(job.id, weekTasks.length);
 
-      await jobRepository.createWeekTasksBatch(weekTasks);
-      await pubsubClient.publishWeekTasksBatch(weekTasks);
-      console.log(
-        `Pipeline: Published ${weekTasks.length} tasks for job ${job.id} (pipeline: ${job.pipelineId})`
-      );
+        await jobRepository.createWeekTasksBatch(weekTasks);
+        await pubsubClient.publishWeekTasksBatch(weekTasks);
+        console.log(
+          `Pipeline: Published ${weekTasks.length} tasks for job ${job.id} (pipeline: ${job.pipelineId})`
+        );
+      } catch (pipelineErr) {
+        const errMsg =
+          pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
+        console.error(`Pipeline setup error for job ${job.id}:`, errMsg);
+        await jobRepository.updateJobStatus(job.id, 'error', errMsg);
+        return c.json({ error: errMsg }, 500);
+      }
     }
 
     return c.json({ success: true, jobId: job.id });
@@ -289,7 +299,10 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
       const endDate = new Date(message.dateRange.end);
       const dateRange = DateRange.create(startDate, endDate);
 
-      const posts = await slackRepository.fetchUserPosts({ userId: job.userId, dateRange });
+      // 'caller' maps to the invoking user; otherwise use the configured user ID
+      const effectiveUserId =
+        pipeline.slackInput.userId === 'caller' ? job.userId : pipeline.slackInput.userId;
+      const posts = await slackRepository.fetchUserPosts({ userId: effectiveUserId, dateRange });
 
       if (posts.length === 0) {
         content = '';
@@ -659,11 +672,18 @@ function getGroupKey(date: Date, unit: StageUnit): string {
       return `${year}-Q${quarter}`;
     case 'year':
       return `${year}`;
-    case 'week':
+    case 'week': {
+      // ISO 8601 week number: align to Thursday's year for cross-year weeks
+      const utc = new Date(Date.UTC(year, date.getMonth(), date.getDate()));
+      const dow = utc.getUTCDay() || 7; // 1=Mon … 7=Sun
+      utc.setUTCDate(utc.getUTCDate() + 4 - dow); // Thursday of the same week
+      const isoYear = utc.getUTCFullYear();
+      const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+      const weekNum = Math.ceil(((utc.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+      return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
+    }
     case 'day':
-      throw new Error(
-        `StageUnit "${unit}" is not supported as an aggregation grouping unit`
-      );
+      return `${year}-${String(month).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
 }
 
