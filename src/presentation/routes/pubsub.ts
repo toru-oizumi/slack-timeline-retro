@@ -82,7 +82,7 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
               end: weeks[0].end.toISOString(),
             },
           };
-          // Create week task in Firestore before publishing
+          // Create week task in Firestore before publishing so week-worker can update it
           await jobRepository.createWeekTasksBatch([weekTask]);
           await pubsubClient.publishWeekTask(weekTask);
           console.log(`Published 1 week task for weekly job ${job.id}`);
@@ -614,7 +614,10 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
           }
         }
       } else {
-        // Process each aggregation stage
+        // Process each aggregation stage.
+        // Note: inputSource, slackInput.userId, and output config fields are
+        // parsed but not yet fully enforced — each stage always aggregates the
+        // immediately preceding stage's results.
         for (let i = 1; i < pipeline.stages.length; i++) {
           const stage = pipeline.stages[i];
           const groups = groupResultsByUnit(prevResults, stage.unit);
@@ -625,7 +628,6 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
             const generated = await aiService.generateForStage({
               prompt: stage.prompt,
               input: combinedText,
-              stageType: stage.unit,
             });
 
             await slackRepository.postToSelfDM({

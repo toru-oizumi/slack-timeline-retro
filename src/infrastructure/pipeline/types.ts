@@ -3,7 +3,9 @@ import { z } from 'zod';
 /**
  * Atomic unit for pipeline stages.
  * Time-based: day | week | month | quarter | year
- * Special:    all_years = aggregate across all years in the job (enables YoY culture comparison)
+ * Special:    all_years = aggregate all year-level results within the job into a single group.
+ *             With one year, it produces a single-year profile; with multiple years it enables
+ *             year-over-year comparison. The job must include the desired years at creation time.
  */
 export const StageUnitSchema = z.enum(['day', 'week', 'month', 'quarter', 'year', 'all_years']);
 export type StageUnit = z.infer<typeof StageUnitSchema>;

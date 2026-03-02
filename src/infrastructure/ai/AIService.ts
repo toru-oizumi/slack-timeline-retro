@@ -130,14 +130,9 @@ export class AIService implements IAIService {
       { system: params.prompt.system, user: params.prompt.user },
       { input: params.input }
     );
-    const validTypes = ['weekly', 'monthly', 'yearly'] as const;
-    type GenerationConfigType = (typeof validTypes)[number];
-    const configType: GenerationConfigType =
-      params.stageType && (validTypes as readonly string[]).includes(params.stageType)
-        ? (params.stageType as GenerationConfigType)
-        : 'weekly';
-    const generationConfig = getGenerationConfigForType(this.config, configType);
-    return this.generate(messages, generationConfig);
+    // Use base generation config; pipeline stages define their own prompts and
+    // may represent any aggregation level, so type-specific overrides don't apply.
+    return this.generate(messages, this.config.generation);
   }
 
   async generateYearlySummary(monthlySummaries: Summary[]): Promise<GeneratedContent> {

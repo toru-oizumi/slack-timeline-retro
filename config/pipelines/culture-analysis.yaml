@@ -69,7 +69,9 @@ stages:
         Monthly data:
         {{input}}
 
-  # Stage 4: Year-over-year culture comparison (aggregates yearly_culture results across all years)
+  # Stage 4: Aggregate yearly_culture results across all years in the job.
+  # Runs unconditionally — with a single year it produces a single-year profile;
+  # with multiple years it produces a year-over-year comparison.
   - id: yoy_report
     unit: all_years
     inputSource: yearly_culture
