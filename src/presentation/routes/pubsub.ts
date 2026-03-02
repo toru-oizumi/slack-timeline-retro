@@ -81,6 +81,10 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
               end: weeks[0].end.toISOString(),
             },
           };
+
+          // Create week task in Firestore before publishing so week-worker can update it
+          await jobRepository.createWeekTasksBatch([weekTask]);
+
           await pubsubClient.publishWeekTask(weekTask);
           console.log(`Published 1 week task for weekly job ${job.id}`);
           break;
@@ -153,6 +157,9 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
         pipelineId: job.pipelineId,
         stageId: baseStage.id,
       }));
+
+      // Update totalTasks to the actual number of base-stage ranges
+      await jobRepository.updateTotalTasks(job.id, weekTasks.length);
 
       await jobRepository.createWeekTasksBatch(weekTasks);
       await pubsubClient.publishWeekTasksBatch(weekTasks);
@@ -535,30 +542,47 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
         content: task.content ?? '',
       }));
 
-      // Process each aggregation stage
-      for (let i = 1; i < pipeline.stages.length; i++) {
-        const stage = pipeline.stages[i];
-        const groups = groupResultsByUnit(prevResults, stage.unit);
-        const currentResults: PipelineStageResult[] = [];
-
-        for (const group of groups) {
-          const combinedText = group.items.map((r) => r.content).join('\n\n---\n\n');
-          const generated = await aiService.generateForStage({
-            prompt: stage.prompt,
-            input: combinedText,
-          });
-
-          await slackRepository.postToSelfDM({
-            channelId: job.channelId,
-            text: generated.content,
-            threadTs: job.threadTs,
-          });
-          await sleep(1000);
-
-          currentResults.push({ date: group.date, content: generated.content });
+      if (pipeline.stages.length === 1) {
+        // Single-stage pipeline: post base results directly
+        for (const result of prevResults) {
+          if (result.content.length > 0) {
+            await slackRepository.postToSelfDM({
+              channelId: job.channelId,
+              text: result.content,
+              threadTs: job.threadTs,
+            });
+            await sleep(1000);
+          }
         }
+      } else {
+        // Process each aggregation stage.
+        // Note: inputSource, slackInput.userId, and output config fields are
+        // parsed but not yet fully enforced — each stage always aggregates the
+        // immediately preceding stage's results.
+        for (let i = 1; i < pipeline.stages.length; i++) {
+          const stage = pipeline.stages[i];
+          const groups = groupResultsByUnit(prevResults, stage.unit);
+          const currentResults: PipelineStageResult[] = [];
 
-        prevResults = currentResults;
+          for (const group of groups) {
+            const combinedText = group.items.map((r) => r.content).join('\n\n---\n\n');
+            const generated = await aiService.generateForStage({
+              prompt: stage.prompt,
+              input: combinedText,
+            });
+
+            await slackRepository.postToSelfDM({
+              channelId: job.channelId,
+              text: generated.content,
+              threadTs: job.threadTs,
+            });
+            await sleep(1000);
+
+            currentResults.push({ date: group.date, content: generated.content });
+          }
+
+          prevResults = currentResults;
+        }
       }
     }
 
@@ -635,8 +659,11 @@ function getGroupKey(date: Date, unit: StageUnit): string {
       return `${year}-Q${quarter}`;
     case 'year':
       return `${year}`;
-    default:
-      return `${year}-${String(month).padStart(2, '0')}`;
+    case 'week':
+    case 'day':
+      throw new Error(
+        `StageUnit "${unit}" is not supported as an aggregation grouping unit`
+      );
   }
 }
 

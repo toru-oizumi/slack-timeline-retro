@@ -42,6 +42,12 @@ export class PipelineConfigRepository {
       );
     }
 
+    if (result.data.id !== pipelineId) {
+      throw new Error(
+        `Pipeline config ID mismatch for "${pipelineId}": YAML id is "${result.data.id}"`
+      );
+    }
+
     this.cache.set(pipelineId, result.data);
     return result.data;
   }

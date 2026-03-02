@@ -165,6 +165,17 @@ export class JobRepository {
   }
 
   /**
+   * Update job's totalTasks count (used when pipeline task count is known after orchestration)
+   */
+  async updateTotalTasks(jobId: string, totalTasks: number): Promise<void> {
+    await this.db.collection(this.jobsCollection).doc(jobId).update({
+      totalTasks,
+      updatedAt: Timestamp.now(),
+    });
+    console.log(`Job ${jobId} totalTasks updated to: ${totalTasks}`);
+  }
+
+  /**
    * Update job status
    */
   async updateJobStatus(jobId: string, status: JobStatus, errorMessage?: string): Promise<void> {

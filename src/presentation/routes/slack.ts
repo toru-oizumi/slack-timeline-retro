@@ -141,7 +141,9 @@ slackRoutes.post('/slack/command', async (c) => {
   const userId = payload.user_id;
 
   // Check if this command is handled by a pipeline config
-  const pipelineIds = env.PIPELINE_IDS ? env.PIPELINE_IDS.split(',').map((s) => s.trim()) : [];
+  const pipelineIds = env.PIPELINE_IDS
+    ? env.PIPELINE_IDS.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+    : [];
   let activePipelineId: string | undefined;
   if (pipelineIds.length > 0) {
     const pipelineRepo = new PipelineConfigRepository();
