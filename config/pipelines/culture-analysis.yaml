@@ -4,8 +4,7 @@ description: "Org culture analysis with year-over-year comparison"
 
 slackInput:
   type: channel_threads
-  channelIds:
-    - C0123456789 # Replace with actual channel IDs (e.g. #general, #engineering)
+  channelIds: [] # Configure with real Slack channel IDs before enabling this pipeline
   sampling:
     strategy: top_engaged # Score by reactions + replies to surface high-signal threads
     maxThreadsPerWeek: 5  # Per channel, per week. Increase for broader coverage.
@@ -70,7 +69,7 @@ stages:
         Monthly data:
         {{input}}
 
-  # Stage 4: Compare culture across years (only runs when multiple years are specified)
+  # Stage 4: Year-over-year culture comparison (aggregates yearly_culture results across all years)
   - id: yoy_report
     unit: all_years
     inputSource: yearly_culture

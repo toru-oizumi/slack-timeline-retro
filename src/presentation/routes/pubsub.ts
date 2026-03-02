@@ -142,16 +142,25 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
       const pipeline = pipelineRepo.getById(job.pipelineId);
       const baseStage = pipeline.stages[0];
       const stageUnitMapper = new StageUnitMapper(dateService);
-      const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, job.year);
 
-      const weekTasks: WeekTaskMessage[] =
-        pipeline.slackInput.type === 'channel_threads'
-          ? // channel_threads: generate one task per (channel × date range)
-            (pipeline.slackInput as ChannelThreadsInput).channelIds.flatMap((channelId, chIdx) =>
-              ranges.map((range, weekIdx) => ({
+      // Support multi-year jobs (e.g. culture analysis with YoY comparison)
+      const pipelineYears =
+        job.years && job.years.length > 0 ? job.years : [job.year];
+
+      const weekTasks: WeekTaskMessage[] = [];
+      let taskNum = 1;
+
+      if (pipeline.slackInput.type === 'channel_threads') {
+        // channel_threads: one task per (channel × date range × year)
+        const channelIds = (pipeline.slackInput as ChannelThreadsInput).channelIds;
+        for (const channelId of channelIds) {
+          for (const year of pipelineYears) {
+            const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
+            for (const range of ranges) {
+              weekTasks.push({
                 jobId: job.id,
-                weekNumber: chIdx * ranges.length + weekIdx + 1,
-                year: job.year,
+                weekNumber: taskNum++,
+                year,
                 dateRange: {
                   start: range.start.toISOString(),
                   end: range.end.toISOString(),
@@ -159,27 +168,36 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
                 pipelineId: job.pipelineId,
                 stageId: baseStage.id,
                 channelId,
-              }))
-            )
-          : // user_posts: one task per date range (existing behavior)
-            ranges.map((range, index) => ({
+              });
+            }
+          }
+        }
+      } else {
+        // user_posts: one task per (date range × year)
+        for (const year of pipelineYears) {
+          const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
+          for (const range of ranges) {
+            weekTasks.push({
               jobId: job.id,
-              weekNumber: index + 1,
-              year: job.year,
+              weekNumber: taskNum++,
+              year,
               dateRange: {
                 start: range.start.toISOString(),
                 end: range.end.toISOString(),
               },
               pipelineId: job.pipelineId,
               stageId: baseStage.id,
-            }));
+            });
+          }
+        }
+      }
 
       // Update totalTasks to match actual task count computed from pipeline ranges
       await jobRepository.updateTotalTasks(job.id, weekTasks.length);
       await jobRepository.createWeekTasksBatch(weekTasks);
       await pubsubClient.publishWeekTasksBatch(weekTasks);
       console.log(
-        `Pipeline: Published ${weekTasks.length} tasks for job ${job.id} (pipeline: ${job.pipelineId})`
+        `Pipeline: Published ${weekTasks.length} tasks for job ${job.id} (pipeline: ${job.pipelineId}, years: ${pipelineYears.join(', ')})`
       );
     }
 

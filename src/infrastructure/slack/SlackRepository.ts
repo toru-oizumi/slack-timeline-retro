@@ -491,7 +491,7 @@ export class SlackRepository implements ISlackRepository {
     const latest = String(dateRange.end.getTime() / 1000);
 
     do {
-      const response = await this.botClient.conversations.history({
+      const response = await this.userClient.conversations.history({
         channel: channelId,
         oldest,
         latest,
@@ -557,7 +557,7 @@ export class SlackRepository implements ISlackRepository {
    * Fetch replies for a thread (excludes the parent message itself).
    */
   private async fetchThreadReplies(channelId: string, threadTs: string): Promise<Post[]> {
-    const response = await this.botClient.conversations.replies({
+    const response = await this.userClient.conversations.replies({
       channel: channelId,
       ts: threadTs,
       limit: 100,

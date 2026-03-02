@@ -91,27 +91,30 @@ function parsePipelineYears(text: string): number[] {
 }
 
 /**
- * Calculate total week tasks for a pipeline job.
- * For channel_threads: channelIds.length × dateRanges.length
- * For user_posts: dateRanges.length
+ * Calculate total week tasks for a pipeline job spanning one or more years.
+ * For channel_threads: channelIds.length × total dateRanges across all years
+ * For user_posts: total dateRanges across all years
  */
-function calculatePipelineTotalTasks(pipeline: PipelineConfig, year: number): number {
+function calculatePipelineTotalTasks(pipeline: PipelineConfig, years: number[]): number {
   const dateService = new DateService();
   const baseStage = pipeline.stages[0];
 
   let dateRangeCount: number;
   switch (baseStage.unit) {
     case 'week':
-      dateRangeCount = dateService.getAllWeeksInYear(year).length;
+      dateRangeCount = years.reduce(
+        (sum, year) => sum + dateService.getAllWeeksInYear(year).length,
+        0
+      );
       break;
     case 'month':
-      dateRangeCount = 12;
+      dateRangeCount = 12 * years.length;
       break;
     case 'year':
-      dateRangeCount = 1;
+      dateRangeCount = years.length;
       break;
     default:
-      dateRangeCount = dateService.getAllWeeksInYear(year).length;
+      throw new Error(`Unsupported baseStage.unit: ${String(baseStage.unit)}`);
   }
 
   if (pipeline.slackInput.type === 'channel_threads') {
@@ -243,27 +246,26 @@ slackRoutes.post('/slack/command', async (c) => {
     });
     console.log(`Thread created: channel=${selfDmChannelId}, thread_ts=${threadTs}`);
 
-    // Create one job per year and publish
+    // Create one job covering all years (enables all_years stage for YoY comparison)
     const jobRepository = new JobRepository();
     const pubsubClient = new PubSubClient();
 
-    await Promise.all(
-      years.map(async (year) => {
-        const totalTasks = calculatePipelineTotalTasks(pipeline, year);
-        const job = await jobRepository.createJob({
-          type: 'yearly',
-          year,
-          pipelineId: activePipelineId!,
-          userId,
-          channelId: selfDmChannelId,
-          threadTs,
-          userToken,
-          totalTasks,
-          options: { includePrivate: false, includeDM: false, includeGroup: false },
-        });
-        await pubsubClient.publishSummaryJob({ jobId: job.id });
-        console.log(`Pipeline job created: ${job.id}, year: ${year}, pipeline: ${activePipelineId}`);
-      })
+    const totalTasks = calculatePipelineTotalTasks(pipeline, years);
+    const job = await jobRepository.createJob({
+      type: 'yearly',
+      year: years[0],
+      years,
+      pipelineId: activePipelineId!,
+      userId,
+      channelId: selfDmChannelId,
+      threadTs,
+      userToken,
+      totalTasks,
+      options: { includePrivate: false, includeDM: false, includeGroup: false },
+    });
+    await pubsubClient.publishSummaryJob({ jobId: job.id });
+    console.log(
+      `Pipeline job created: ${job.id}, years: ${years.join(', ')}, pipeline: ${activePipelineId}`
     );
 
     return c.json({
