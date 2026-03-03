@@ -24,6 +24,7 @@ describe('GenerateMonthlySummary', () => {
       generateWeeklySummary: vi.fn(),
       generateMonthlySummary: vi.fn(),
       generateYearlySummary: vi.fn(),
+      generateForStage: vi.fn(),
     };
 
     usecase = new GenerateMonthlySummary(mockSlackRepository, mockAIService);

@@ -5,6 +5,11 @@ import { defaultAIConfig, type Locale } from '@/infrastructure/config';
 import { DateService } from '@/infrastructure/date';
 import { JobRepository } from '@/infrastructure/firestore';
 import {
+  PipelineConfigRepository,
+  StageUnitMapper,
+  type StageUnit,
+} from '@/infrastructure/pipeline';
+import {
   decodePubSubMessage,
   type PostingTaskMessage,
   PubSubClient,
@@ -61,69 +66,115 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
     const pubsubClient = new PubSubClient();
     const dateService = new DateService();
 
-    switch (job.type) {
-      case 'weekly': {
-        // For weekly, just process directly (single task)
-        const weeks = [dateService.getWeekRange(new Date())];
-        const weekTask: WeekTaskMessage = {
-          jobId: job.id,
-          weekNumber: dateService.getWeekNumber(weeks[0].start),
-          year: job.year,
-          dateRange: {
-            start: weeks[0].start.toISOString(),
-            end: weeks[0].end.toISOString(),
-          },
-        };
-        await pubsubClient.publishWeekTask(weekTask);
-        console.log(`Published 1 week task for weekly job ${job.id}`);
-        break;
+    if (!job.pipelineId) {
+      // === Legacy path ===
+      switch (job.type) {
+        case 'weekly': {
+          // For weekly, just process directly (single task)
+          const weeks = [dateService.getWeekRange(new Date())];
+          const weekTask: WeekTaskMessage = {
+            jobId: job.id,
+            weekNumber: dateService.getWeekNumber(weeks[0].start),
+            year: job.year,
+            dateRange: {
+              start: weeks[0].start.toISOString(),
+              end: weeks[0].end.toISOString(),
+            },
+          };
+
+          // Create week task in Firestore before publishing so week-worker can update it
+          await jobRepository.createWeekTasksBatch([weekTask]);
+
+          await pubsubClient.publishWeekTask(weekTask);
+          console.log(`Published 1 week task for weekly job ${job.id}`);
+          break;
+        }
+
+        case 'monthly': {
+          // For monthly, create tasks for each week in the month
+          const weeks = dateService.getWeeksOverlappingMonth(job.year, job.month ?? 1);
+          const weekTasks: WeekTaskMessage[] = weeks.map((week, index) => ({
+            jobId: job.id,
+            weekNumber: index + 1, // Month-relative week number
+            year: job.year,
+            dateRange: {
+              start: week.start.toISOString(),
+              end: week.end.toISOString(),
+            },
+          }));
+
+          // Update total tasks
+          await jobRepository.updateJobStatus(job.id, 'processing');
+
+          // Create week tasks in Firestore
+          await jobRepository.createWeekTasksBatch(weekTasks);
+
+          // Publish all week tasks
+          await pubsubClient.publishWeekTasksBatch(weekTasks);
+          console.log(`Published ${weekTasks.length} week tasks for monthly job ${job.id}`);
+          break;
+        }
+
+        case 'yearly': {
+          // For yearly, create tasks for all weeks in the year
+          const weeks = dateService.getAllWeeksInYear(job.year);
+          const weekTasks: WeekTaskMessage[] = weeks.map((week, index) => ({
+            jobId: job.id,
+            weekNumber: index + 1,
+            year: job.year,
+            dateRange: {
+              start: week.start.toISOString(),
+              end: week.end.toISOString(),
+            },
+          }));
+
+          // Create week tasks in Firestore
+          await jobRepository.createWeekTasksBatch(weekTasks);
+
+          // Publish all week tasks
+          await pubsubClient.publishWeekTasksBatch(weekTasks);
+          console.log(`Published ${weekTasks.length} week tasks for yearly job ${job.id}`);
+          break;
+        }
       }
+    } else {
+      // === Pipeline path ===
+      // Wrap in try/catch so config errors mark the job as failed rather than
+      // leaving it stuck in 'processing' with no tasks.
+      try {
+        const pipelineRepo = new PipelineConfigRepository();
+        const pipeline = pipelineRepo.getById(job.pipelineId);
+        const baseStage = pipeline.stages[0];
 
-      case 'monthly': {
-        // For monthly, create tasks for each week in the month
-        const weeks = dateService.getWeeksOverlappingMonth(job.year, job.month ?? 1);
-        const weekTasks: WeekTaskMessage[] = weeks.map((week, index) => ({
-          jobId: job.id,
-          weekNumber: index + 1, // Month-relative week number
-          year: job.year,
-          dateRange: {
-            start: week.start.toISOString(),
-            end: week.end.toISOString(),
-          },
-        }));
+        const stageUnitMapper = new StageUnitMapper(dateService);
+        const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, job.year);
 
-        // Update total tasks
-        await jobRepository.updateJobStatus(job.id, 'processing');
-
-        // Create week tasks in Firestore
-        await jobRepository.createWeekTasksBatch(weekTasks);
-
-        // Publish all week tasks
-        await pubsubClient.publishWeekTasksBatch(weekTasks);
-        console.log(`Published ${weekTasks.length} week tasks for monthly job ${job.id}`);
-        break;
-      }
-
-      case 'yearly': {
-        // For yearly, create tasks for all weeks in the year
-        const weeks = dateService.getAllWeeksInYear(job.year);
-        const weekTasks: WeekTaskMessage[] = weeks.map((week, index) => ({
+        const weekTasks: WeekTaskMessage[] = ranges.map((range, index) => ({
           jobId: job.id,
           weekNumber: index + 1,
           year: job.year,
           dateRange: {
-            start: week.start.toISOString(),
-            end: week.end.toISOString(),
+            start: range.start.toISOString(),
+            end: range.end.toISOString(),
           },
+          pipelineId: job.pipelineId,
+          stageId: baseStage.id,
         }));
 
-        // Create week tasks in Firestore
-        await jobRepository.createWeekTasksBatch(weekTasks);
+        // Update totalTasks to the actual number of base-stage ranges
+        await jobRepository.updateTotalTasks(job.id, weekTasks.length);
 
-        // Publish all week tasks
+        await jobRepository.createWeekTasksBatch(weekTasks);
         await pubsubClient.publishWeekTasksBatch(weekTasks);
-        console.log(`Published ${weekTasks.length} week tasks for yearly job ${job.id}`);
-        break;
+        console.log(
+          `Pipeline: Published ${weekTasks.length} tasks for job ${job.id} (pipeline: ${job.pipelineId})`
+        );
+      } catch (pipelineErr) {
+        const errMsg =
+          pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
+        console.error(`Pipeline setup error for job ${job.id}:`, errMsg);
+        await jobRepository.updateJobStatus(job.id, 'error', errMsg);
+        return c.json({ error: errMsg }, 500);
       }
     }
 
@@ -204,35 +255,68 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
       job.userToken
     );
 
-    // Create channel for posting (but we won't post individual weeks)
-    const channel = SlackChannel.create(job.channelId, job.threadTs);
-
-    // Parse date range
-    const startDate = new Date(message.dateRange.start);
-
-    // Generate weekly summary
-    const usecase = new GenerateWeeklySummary(slackRepository, aiService);
-    const result = await usecase.execute({
-      userId: job.userId,
-      targetDate: startDate,
-      year: job.year,
-      channel, // Not used for posting in batch mode
-    });
-
     let content: string | undefined;
     let error: string | undefined;
 
-    if (result.ok) {
-      content = result.value.content;
-      console.log(`Week ${message.weekNumber} summary generated for job ${job.id}`);
-    } else {
-      // For "no posts found", treat as empty content rather than error
-      if (result.error.message.includes('No posts found')) {
-        content = ''; // Empty content for weeks with no posts
-        console.log(`Week ${message.weekNumber}: No posts found for job ${job.id}`);
+    if (!message.pipelineId) {
+      // === Legacy path ===
+      // Create channel for posting (but we won't post individual weeks)
+      const channel = SlackChannel.create(job.channelId, job.threadTs);
+
+      // Parse date range
+      const startDate = new Date(message.dateRange.start);
+
+      // Generate weekly summary
+      const usecase = new GenerateWeeklySummary(slackRepository, aiService);
+      const result = await usecase.execute({
+        userId: job.userId,
+        targetDate: startDate,
+        year: job.year,
+        channel, // Not used for posting in batch mode
+      });
+
+      if (result.ok) {
+        content = result.value.content;
+        console.log(`Week ${message.weekNumber} summary generated for job ${job.id}`);
       } else {
-        error = result.error.message;
-        console.error(`Week ${message.weekNumber} error: ${error}`);
+        // For "no posts found", treat as empty content rather than error
+        if (result.error.message.includes('No posts found')) {
+          content = ''; // Empty content for weeks with no posts
+          console.log(`Week ${message.weekNumber}: No posts found for job ${job.id}`);
+        } else {
+          error = result.error.message;
+          console.error(`Week ${message.weekNumber} error: ${error}`);
+        }
+      }
+    } else {
+      // === Pipeline path ===
+      const pipelineRepo = new PipelineConfigRepository();
+      const pipeline = pipelineRepo.getById(message.pipelineId);
+      const stage =
+        pipeline.stages.find((s) => s.id === message.stageId) ?? pipeline.stages[0];
+
+      const startDate = new Date(message.dateRange.start);
+      const endDate = new Date(message.dateRange.end);
+      const dateRange = DateRange.create(startDate, endDate);
+
+      // 'caller' maps to the invoking user; otherwise use the configured user ID
+      const effectiveUserId =
+        pipeline.slackInput.userId === 'caller' ? job.userId : pipeline.slackInput.userId;
+      const posts = await slackRepository.fetchUserPosts({ userId: effectiveUserId, dateRange });
+
+      if (posts.length === 0) {
+        content = '';
+        console.log(`Pipeline week ${message.weekNumber}: No posts found for job ${job.id}`);
+      } else {
+        const postsText = posts.map((p) => p.toSummaryFormat()).join('\n');
+        const generated = await aiService.generateForStage({
+          prompt: stage.prompt,
+          input: postsText,
+        });
+        content = generated.content;
+        console.log(
+          `Pipeline week ${message.weekNumber} summary generated for job ${job.id}`
+        );
       }
     }
 
@@ -339,120 +423,179 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
       return c.json({ success: true, noContent: true });
     }
 
-    switch (job.type) {
-      case 'weekly': {
-        // For weekly, post the single week's content directly
-        const weekTask = tasksWithContent[0];
-        if (weekTask?.content) {
+    if (!job.pipelineId) {
+      // === Legacy path ===
+      switch (job.type) {
+        case 'weekly': {
+          // For weekly, post the single week's content directly
+          const weekTask = tasksWithContent[0];
+          if (weekTask?.content) {
+            await slackRepository.postToSelfDM({
+              channelId: job.channelId,
+              text: weekTask.content,
+              threadTs: job.threadTs,
+            });
+          }
+          break;
+        }
+
+        case 'monthly': {
+          // For monthly, aggregate weeks and generate monthly summary
+          const weeklySummaries = tasksWithContent.map((task, index) => {
+            const start = new Date(task.dateRange.start);
+            const end = new Date(task.dateRange.end);
+            return Summary.createWeekly({
+              content: task.content ?? '',
+              dateRange: DateRange.create(start, end),
+              year: job.year,
+              weekNumber: index + 1,
+            });
+          });
+          const monthlySummary = await aiService.generateMonthlySummary(weeklySummaries);
+
           await slackRepository.postToSelfDM({
             channelId: job.channelId,
-            text: weekTask.content,
+            text: monthlySummary.content,
             threadTs: job.threadTs,
           });
+          break;
         }
-        break;
-      }
 
-      case 'monthly': {
-        // For monthly, aggregate weeks and generate monthly summary
-        const weeklySummaries = tasksWithContent.map((task, index) => {
-          const start = new Date(task.dateRange.start);
-          const end = new Date(task.dateRange.end);
-          return Summary.createWeekly({
-            content: task.content ?? '',
-            dateRange: DateRange.create(start, end),
-            year: job.year,
-            weekNumber: index + 1,
-          });
-        });
-        const monthlySummary = await aiService.generateMonthlySummary(weeklySummaries);
+        case 'yearly': {
+          // For yearly, we need to:
+          // 1. Group weeks by month
+          // 2. Generate monthly summaries in parallel
+          // 3. Post monthly summaries to Slack sequentially (preserve order + rate limiting)
+          // 4. Generate and post yearly summary
 
-        await slackRepository.postToSelfDM({
-          channelId: job.channelId,
-          text: monthlySummary.content,
-          threadTs: job.threadTs,
-        });
-        break;
-      }
+          const groupedByMonth = groupWeeksByMonth(tasksWithContent);
 
-      case 'yearly': {
-        // For yearly, we need to:
-        // 1. Group weeks by month
-        // 2. Generate monthly summaries in parallel
-        // 3. Post monthly summaries to Slack sequentially (preserve order + rate limiting)
-        // 4. Generate and post yearly summary
+          // Sort month entries to preserve chronological order
+          const monthEntries = Object.entries(groupedByMonth)
+            .map(([month, weeks]) => ({ monthNum: Number(month), weeks }))
+            .sort((a, b) => a.monthNum - b.monthNum);
 
-        const groupedByMonth = groupWeeksByMonth(tasksWithContent);
+          // Generate all monthly summaries in parallel
+          const monthlyResults = await Promise.all(
+            monthEntries.map(async ({ monthNum, weeks }) => {
+              const weeklySummaries = weeks
+                .map((w, index) => {
+                  if (!w.content || w.content.length === 0) return null;
+                  const start = new Date(w.dateRange.start);
+                  const end = new Date(w.dateRange.end);
+                  return Summary.createWeekly({
+                    content: w.content,
+                    dateRange: DateRange.create(start, end),
+                    year: job.year,
+                    weekNumber: index + 1,
+                  });
+                })
+                .filter((s): s is Summary => s !== null);
 
-        // Sort month entries to preserve chronological order
-        const monthEntries = Object.entries(groupedByMonth)
-          .map(([month, weeks]) => ({ monthNum: Number(month), weeks }))
-          .sort((a, b) => a.monthNum - b.monthNum);
+              if (weeklySummaries.length === 0) return null;
 
-        // Generate all monthly summaries in parallel
-        const monthlyResults = await Promise.all(
-          monthEntries.map(async ({ monthNum, weeks }) => {
-            const weeklySummaries = weeks
-              .map((w, index) => {
-                if (!w.content || w.content.length === 0) return null;
-                const start = new Date(w.dateRange.start);
-                const end = new Date(w.dateRange.end);
-                return Summary.createWeekly({
-                  content: w.content,
-                  dateRange: DateRange.create(start, end),
-                  year: job.year,
-                  weekNumber: index + 1,
-                });
-              })
-              .filter((s): s is Summary => s !== null);
+              const monthly = await aiService.generateMonthlySummary(weeklySummaries);
+              const monthStart = new Date(job.year, monthNum - 1, 1);
+              const monthEnd = new Date(job.year, monthNum, 0); // Last day of month
 
-            if (weeklySummaries.length === 0) return null;
-
-            const monthly = await aiService.generateMonthlySummary(weeklySummaries);
-            const monthStart = new Date(job.year, monthNum - 1, 1);
-            const monthEnd = new Date(job.year, monthNum, 0); // Last day of month
-
-            return {
-              monthNum,
-              content: monthly.content,
-              summary: Summary.createMonthly({
+              return {
+                monthNum,
                 content: monthly.content,
-                dateRange: DateRange.create(monthStart, monthEnd),
-                year: job.year,
-                month: monthNum,
-              }),
-            };
-          })
-        );
+                summary: Summary.createMonthly({
+                  content: monthly.content,
+                  dateRange: DateRange.create(monthStart, monthEnd),
+                  year: job.year,
+                  month: monthNum,
+                }),
+              };
+            })
+          );
 
-        // Filter out months with no posts
-        const validMonths = monthlyResults.filter(
-          (r): r is NonNullable<typeof r> => r !== null
-        );
+          // Filter out months with no posts
+          const validMonths = monthlyResults.filter(
+            (r): r is NonNullable<typeof r> => r !== null
+          );
 
-        // Post monthly summaries to Slack sequentially (preserve order + rate limiting)
-        const monthlySummaries: Summary[] = [];
-        for (const { monthNum, content, summary } of validMonths) {
-          await slackRepository.postToSelfDM({
-            channelId: job.channelId,
-            text: `📅 *${getMonthName(monthNum, locale)}*\n\n${content}`,
-            threadTs: job.threadTs,
-          });
-          monthlySummaries.push(summary);
-          await sleep(1000);
+          // Post monthly summaries to Slack sequentially (preserve order + rate limiting)
+          const monthlySummaries: Summary[] = [];
+          for (const { monthNum, content, summary } of validMonths) {
+            await slackRepository.postToSelfDM({
+              channelId: job.channelId,
+              text: `📅 *${getMonthName(monthNum, locale)}*\n\n${content}`,
+              threadTs: job.threadTs,
+            });
+            monthlySummaries.push(summary);
+            await sleep(1000);
+          }
+
+          // Generate and post yearly summary
+          if (monthlySummaries.length > 0) {
+            const yearly = await aiService.generateYearlySummary(monthlySummaries);
+
+            await slackRepository.postToSelfDM({
+              channelId: job.channelId,
+              text: `🎉 *${job.year} Year Summary*\n\n${yearly.content}`,
+              threadTs: job.threadTs,
+            });
+          }
+          break;
         }
+      }
+    } else {
+      // === Pipeline path ===
+      // Multi-stage aggregation driven by pipeline config.
+      // stages[0] = base stage (already processed as week tasks).
+      // stages[1..] = aggregation stages: group previous results by unit, call generateForStage.
+      const pipelineRepo = new PipelineConfigRepository();
+      const pipeline = pipelineRepo.getById(job.pipelineId);
 
-        // Generate and post yearly summary
-        if (monthlySummaries.length > 0) {
-          const yearly = await aiService.generateYearlySummary(monthlySummaries);
+      // Collect base stage results
+      let prevResults: PipelineStageResult[] = tasksWithContent.map((task) => ({
+        date: new Date(task.dateRange.start),
+        content: task.content ?? '',
+      }));
 
-          await slackRepository.postToSelfDM({
-            channelId: job.channelId,
-            text: `🎉 *${job.year} Year Summary*\n\n${yearly.content}`,
-            threadTs: job.threadTs,
-          });
+      if (pipeline.stages.length === 1) {
+        // Single-stage pipeline: post base results directly
+        for (const result of prevResults) {
+          if (result.content.length > 0) {
+            await slackRepository.postToSelfDM({
+              channelId: job.channelId,
+              text: result.content,
+              threadTs: job.threadTs,
+            });
+            await sleep(1000);
+          }
         }
-        break;
+      } else {
+        // Process each aggregation stage.
+        // Note: inputSource, slackInput.userId, and output config fields are
+        // parsed but not yet fully enforced — each stage always aggregates the
+        // immediately preceding stage's results.
+        for (let i = 1; i < pipeline.stages.length; i++) {
+          const stage = pipeline.stages[i];
+          const groups = groupResultsByUnit(prevResults, stage.unit);
+          const currentResults: PipelineStageResult[] = [];
+
+          for (const group of groups) {
+            const combinedText = group.items.map((r) => r.content).join('\n\n---\n\n');
+            const generated = await aiService.generateForStage({
+              prompt: stage.prompt,
+              input: combinedText,
+            });
+
+            await slackRepository.postToSelfDM({
+              channelId: job.channelId,
+              text: generated.content,
+              threadTs: job.threadTs,
+            });
+            await sleep(1000);
+
+            currentResults.push({ date: group.date, content: generated.content });
+          }
+
+          prevResults = currentResults;
+        }
       }
     }
 
@@ -486,6 +629,63 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
     return c.json({ error: errorMessage }, 500);
   }
 });
+
+/**
+ * Pipeline stage result for multi-stage aggregation
+ */
+type PipelineStageResult = { date: Date; content: string };
+
+/**
+ * Group pipeline stage results by time unit for the next aggregation stage
+ */
+function groupResultsByUnit(
+  results: PipelineStageResult[],
+  unit: StageUnit
+): { key: string; date: Date; items: PipelineStageResult[] }[] {
+  const grouped = new Map<string, { date: Date; items: PipelineStageResult[] }>();
+
+  for (const result of results) {
+    const key = getGroupKey(result.date, unit);
+    if (!grouped.has(key)) {
+      grouped.set(key, { date: result.date, items: [] });
+    }
+    grouped.get(key)?.items.push(result);
+  }
+
+  return [...grouped.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, group]) => ({ key, ...group }));
+}
+
+/**
+ * Compute the group key for a date at a given unit granularity
+ */
+function getGroupKey(date: Date, unit: StageUnit): string {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const quarter = Math.ceil(month / 3);
+
+  switch (unit) {
+    case 'month':
+      return `${year}-${String(month).padStart(2, '0')}`;
+    case 'quarter':
+      return `${year}-Q${quarter}`;
+    case 'year':
+      return `${year}`;
+    case 'week': {
+      // ISO 8601 week number: align to Thursday's year for cross-year weeks
+      const utc = new Date(Date.UTC(year, date.getMonth(), date.getDate()));
+      const dow = utc.getUTCDay() || 7; // 1=Mon … 7=Sun
+      utc.setUTCDate(utc.getUTCDate() + 4 - dow); // Thursday of the same week
+      const isoYear = utc.getUTCFullYear();
+      const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+      const weekNum = Math.ceil(((utc.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+      return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
+    }
+    case 'day':
+      return `${year}-${String(month).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+}
 
 /**
  * Group week tasks by month

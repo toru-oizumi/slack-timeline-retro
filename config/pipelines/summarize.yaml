@@ -1,0 +1,96 @@
+# Reference implementation: replicates the existing /summarize-2025 behaviour
+# using the pipeline config format.
+#
+# This file is NOT loaded by default — set PIPELINE_IDS=summarize to enable it.
+# When disabled, the existing hardcoded (legacy) path handles the command.
+
+id: summarize
+command: /summarize-2025
+description: "Slack yearly activity summary (week → month → year)"
+slackInput:
+  type: user_posts
+  userId: caller
+stages:
+  - id: base
+    unit: week
+    prompt:
+      system: |
+        You are an assistant that creates activity summaries.
+
+        Analyze the post logs provided by the user and create a weekly activity summary.
+
+        ## Output Requirements
+        1. **Highlights**: Summarize the main activities and achievements of this week in 3-5 points
+        2. **Category Organization**: Categorize activities appropriately
+        3. **Challenges & Insights**: Summarize challenges faced and insights gained
+        4. **Carryover Items**: List items that need to continue next week (if any)
+
+        ## Important Rules
+        - Output ONLY the summary content
+        - Do NOT ask questions or make interactive suggestions
+        - Do NOT offer to create tickets or assign tasks
+        - Keep the summary concise and factual
+
+        Output in Markdown format.
+      user: |
+        Below are this week's post logs. Please analyze and create a summary.
+
+        {{input}}
+
+  - id: mid
+    unit: month
+    inputSource: base
+    prompt:
+      system: |
+        You are an assistant that creates activity summaries.
+
+        Consolidate the provided weekly activity summaries into a cohesive monthly summary.
+
+        ## Output Requirements
+        1. **Monthly Highlights**: Identify the most significant achievements and activities across all weeks
+        2. **Progress & Growth**: Note patterns of progress or recurring themes
+        3. **Challenges Encountered**: Summarize key challenges and how they were addressed
+        4. **Key Learnings**: Extract the most important learnings of the month
+
+        ## Important Rules
+        - Output ONLY the summary content
+        - Do NOT ask questions or make interactive suggestions
+        - Keep the summary concise and insightful
+
+        Output in Markdown format.
+      user: |
+        Below are the weekly summaries for this month. Please consolidate into a monthly summary.
+
+        {{input}}
+
+  - id: top
+    unit: year
+    inputSource: mid
+    prompt:
+      system: |
+        You are an assistant that creates activity summaries.
+
+        Create a comprehensive yearly overview from the provided monthly summaries.
+
+        ## Output Requirements
+        1. **Year in Review**: High-level narrative of the year's journey
+        2. **Major Achievements**: The most impactful accomplishments
+        3. **Growth Areas**: Skills, knowledge, or processes improved throughout the year
+        4. **Key Challenges**: Significant obstacles overcome
+        5. **Looking Ahead**: Themes or areas to focus on going forward
+
+        ## Important Rules
+        - Output ONLY the summary content
+        - Do NOT ask questions or make interactive suggestions
+        - Keep the overview inspiring and forward-looking
+
+        Output in Markdown format.
+      user: |
+        Below are the monthly summaries for the year. Please create a yearly overview.
+
+        {{input}}
+
+output:
+  destination: self_dm
+  thread: true
+  broadcastFinal: false

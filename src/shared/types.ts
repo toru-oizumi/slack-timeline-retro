@@ -19,6 +19,8 @@ export interface Env {
   AI_MAX_TOKENS?: string;
   // Locale setting (en_US or ja_JP)
   LOCALE?: string;
+  // Pipeline IDs (comma-separated). When a Slack command matches a pipeline, it uses the pipeline path.
+  PIPELINE_IDS?: string;
   // Workspace configuration
   INCLUDE_CHANNELS?: string;
   EXCLUDE_CHANNELS?: string;

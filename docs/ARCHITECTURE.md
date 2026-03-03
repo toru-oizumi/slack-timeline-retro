@@ -48,18 +48,19 @@ src/
 │   │   ├── SlackRepository.ts
 │   │   └── SlackMessageParser.ts
 │   ├── ai/
-│   │   ├── AIService.ts
-│   │   └── prompts/
-│   │       ├── weekly.ts
-│   │       ├── monthly.ts
-│   │       └── yearly.ts
-│   └── date/
-│       └── DateService.ts
+│   │   └── AIService.ts
+│   ├── date/
+│   │   └── DateService.ts
+│   ├── firestore/
+│   │   └── JobRepository.ts
+│   └── pipeline/               # パイプライン設定（YAMLロード・検証・ステージ変換）
+│       ├── types.ts             # PipelineConfig / StageConfig (Zod スキーマ)
+│       ├── PipelineConfigRepository.ts
+│       └── StageUnitMapper.ts
 ├── presentation/               # プレゼンテーション層
-│   ├── routes/
-│   │   └── slack.ts
-│   └── handlers/
-│       └── SlashCommandHandler.ts
+│   └── routes/
+│       ├── slack.ts
+│       └── pubsub.ts
 └── shared/                     # 共通ユーティリティ
     ├── types.ts
     ├── errors.ts
@@ -91,7 +92,7 @@ tests/
 
 **リポジトリインターフェース:**
 - `ISlackRepository`: Slack操作の抽象化
-- `IAIService`: AI呼び出しの抽象化
+- `IAIService`: AI呼び出しの抽象化（`generateWeeklySummary` / `generateMonthlySummary` / `generateYearlySummary` / `generateForStage`）
 
 ### 3.2 Use Case Layer (ユースケース層)
 
@@ -108,6 +109,8 @@ tests/
 - `SlackRepository`: Slack Web API操作
 - `AIService`: Vercel AI SDK経由のLLM呼び出し
 - `DateService`: 日付計算ユーティリティ
+- `PipelineConfigRepository`: YAML パイプライン設定の読み込み・検証・キャッシュ
+- `StageUnitMapper`: `StageUnit`（week/month/year）→ `DateService` メソッドのマッピング
 
 ### 3.4 Presentation Layer (プレゼンテーション層)
 

@@ -13,6 +13,7 @@ This tool analyzes your own Slack posts using AI and automatically generates hie
 ### Features
 
 - **Hierarchical Summarization** - Monthly summaries are built from weekly ones, yearly from monthly
+- **Pipeline Configuration** - Define custom summarization pipelines in YAML (stages, prompts, output)
 - **Self-DM Output** - Summaries are posted to your self-DM (private, only visible to you)
 - **User Token OAuth** - Messages are fetched using your own token
 - **Multi-Provider AI** - Choose between OpenAI (GPT) or Anthropic (Claude)
@@ -180,6 +181,54 @@ After deployment, update Slack App URLs:
 | `INCLUDE_PRIVATE_CHANNELS` | `false` | Include private channels by default |
 | `INCLUDE_DIRECT_MESSAGES` | `false` | Include DMs in analysis |
 | `INCLUDE_GROUP_MESSAGES` | `false` | Include group DMs in analysis |
+| `PIPELINE_IDS` | (empty) | Comma-separated pipeline IDs to enable (e.g. `summarize`) |
+
+### Pipeline Configuration
+
+You can define custom summarization pipelines in `config/pipelines/<id>.yaml`. A pipeline specifies:
+- Which Slack command triggers it
+- The stages (atomic unit, prompts per stage)
+- The output format
+
+When `PIPELINE_IDS` is set, the matching Slack command uses the pipeline path instead of the legacy hardcoded flow. The legacy flow remains active for commands not covered by any pipeline.
+
+```bash
+# Enable the reference pipeline (config/pipelines/summarize.yaml)
+export PIPELINE_IDS=summarize
+```
+
+Example pipeline file (`config/pipelines/summarize.yaml`):
+
+```yaml
+id: summarize
+command: /summarize-2025
+description: "Slack yearly activity summary"
+slackInput:
+  type: user_posts
+  userId: caller
+stages:
+  - id: base
+    unit: week          # atomic unit processed in parallel
+    prompt:
+      system: "You are an activity summarizer..."
+      user: "Summarize these posts:\n\n{{input}}"
+  - id: mid
+    unit: month         # aggregates base stage results by month
+    inputSource: base
+    prompt:
+      system: "You are an activity summarizer..."
+      user: "Summarize these weekly summaries:\n\n{{input}}"
+  - id: top
+    unit: year          # aggregates mid stage results into a yearly overview
+    inputSource: mid
+    prompt:
+      system: "You are an activity summarizer..."
+      user: "Create a yearly overview:\n\n{{input}}"
+output:
+  destination: self_dm
+  thread: true
+  broadcastFinal: false
+```
 
 ### Local Development
 
@@ -212,6 +261,7 @@ Slack上の自分自身の発言ログをAIが解析し、「週次・月次・�
 ### 特徴
 
 - **階層的サマリー** - 週次サマリーを元に月次を、月次を元に年次を作成
+- **パイプライン設定** - YAMLでサマリーパイプラインを定義可能（ステージ・プロンプト・出力形式）
 - **セルフDM出力** - サマリーはユーザー自身のセルフDMに投稿（他の人には見えない）
 - **User Token OAuth** - ユーザー自身のトークンでメッセージを取得・投稿
 - **AI選択可能** - OpenAI (GPT) または Anthropic (Claude) を選択可能
@@ -379,6 +429,48 @@ export TARGET_YEAR=2025             # デフォルト: 現在の年
 | `INCLUDE_PRIVATE_CHANNELS` | `false` | デフォルトでプライベートチャンネルを含める |
 | `INCLUDE_DIRECT_MESSAGES` | `false` | DMを分析対象に含める |
 | `INCLUDE_GROUP_MESSAGES` | `false` | グループDMを分析対象に含める |
+| `PIPELINE_IDS` | (空) | 有効にするパイプラインID（カンマ区切り、例: `summarize`） |
+
+### パイプライン設定
+
+`config/pipelines/<id>.yaml` にカスタムサマリーパイプラインを定義できます。パイプラインでは以下を設定します:
+- どの Slack コマンドで起動するか
+- ステージ構成（処理単位・ステージごとのプロンプト）
+- 出力形式
+
+`PIPELINE_IDS` を設定すると、対応するコマンドはパイプラインパスで処理されます。未登録のコマンドは従来の固定コードのフローが引き続き使われます（後方互換）。
+
+```bash
+# 参照実装パイプラインを有効化（config/pipelines/summarize.yaml）
+export PIPELINE_IDS=summarize
+```
+
+パイプライン設定例 (`config/pipelines/my-pipeline.yaml`):
+
+```yaml
+id: my-pipeline
+command: /my-command
+description: "カスタムパイプライン"
+slackInput:
+  type: user_posts
+  userId: caller
+stages:
+  - id: base
+    unit: week          # 並列処理の最小単位
+    prompt:
+      system: "あなたは活動サマリーを作成するアシスタントです"
+      user: "以下の投稿をまとめてください:\n\n{{input}}"
+  - id: top
+    unit: year          # base ステージの結果を年単位で集約
+    inputSource: base
+    prompt:
+      system: "あなたは活動サマリーを作成するアシスタントです"
+      user: "以下の週次サマリーから年次サマリーを作成してください:\n\n{{input}}"
+output:
+  destination: self_dm
+  thread: true
+  broadcastFinal: false
+```
 
 ### ローカル開発
 
@@ -405,10 +497,14 @@ pnpm check            # リント・フォーマット
 ## Project Structure
 
 ```text
+config/
+└── pipelines/        # YAML pipeline configurations (optional)
+
 src/
 ├── domain/           # Domain layer (entities, value objects)
 ├── usecases/         # Use case layer (business logic)
 ├── infrastructure/   # Infrastructure layer (Slack API, AI SDK, Firestore)
+│   └── pipeline/     # Pipeline config loading, stage unit mapping
 ├── presentation/     # Presentation layer (Hono routes)
 ├── shared/           # Shared utilities
 └── index.ts          # Cloud Run entry point

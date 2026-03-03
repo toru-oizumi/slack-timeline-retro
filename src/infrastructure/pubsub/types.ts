@@ -46,6 +46,10 @@ export interface WeekTaskMessage {
     start: string; // ISO date string
     end: string; // ISO date string
   };
+  /** Pipeline ID when using configurable pipelines. Absent for legacy jobs. */
+  pipelineId?: string;
+  /** Stage ID within the pipeline (typically the base stage). */
+  stageId?: string;
 }
 
 /**
