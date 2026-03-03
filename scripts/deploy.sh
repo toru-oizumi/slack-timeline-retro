@@ -159,6 +159,11 @@ deploy_cloud_run() {
   if [ -n "${PIPELINE_IDS:-}" ]; then
     ENV_VARS="${ENV_VARS}PIPELINE_IDS=${PIPELINE_IDS},"
   fi
+  # Pipeline-specific channel ID overrides (e.g. CULTURE_ANALYSIS_CHANNEL_IDS)
+  # Naming convention: <PIPELINE_ID_UPPER_SNAKE>_CHANNEL_IDS
+  if [ -n "${CULTURE_ANALYSIS_CHANNEL_IDS:-}" ]; then
+    ENV_VARS="${ENV_VARS}CULTURE_ANALYSIS_CHANNEL_IDS=${CULTURE_ANALYSIS_CHANNEL_IDS},"
+  fi
   # Strip trailing comma
   ENV_VARS="${ENV_VARS%,}"
 

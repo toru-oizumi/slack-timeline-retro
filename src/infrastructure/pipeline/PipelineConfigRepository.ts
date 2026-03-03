@@ -11,6 +11,41 @@ import { PipelineConfigSchema } from './types';
 const moduleCache = new Map<string, PipelineConfig>();
 
 /**
+ * Derive the env var name for channelIds override from a pipeline ID.
+ * e.g. "culture-analysis" → "CULTURE_ANALYSIS_CHANNEL_IDS"
+ */
+function channelIdsEnvKey(pipelineId: string): string {
+  return `${pipelineId.toUpperCase().replace(/-/g, '_')}_CHANNEL_IDS`;
+}
+
+/**
+ * Apply environment variable overrides to a pipeline config.
+ * Currently supports overriding channelIds for channel_threads pipelines
+ * via <PIPELINE_ID>_CHANNEL_IDS env var (comma-separated).
+ */
+function applyEnvOverrides(pipelineId: string, config: PipelineConfig): PipelineConfig {
+  if (config.slackInput.type !== 'channel_threads') {
+    return config;
+  }
+
+  const envKey = channelIdsEnvKey(pipelineId);
+  const envValue = process.env[envKey];
+  if (!envValue) {
+    return config;
+  }
+
+  const ids = envValue
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return {
+    ...config,
+    slackInput: { ...(config.slackInput as ChannelThreadsInput), channelIds: ids },
+  };
+}
+
+/**
  * Repository for loading and caching pipeline configurations from YAML files.
  * YAMLファイルからパイプライン設定を読み込み、キャッシュする。
  */
@@ -56,18 +91,21 @@ export class PipelineConfigRepository {
       );
     }
 
+    const config = applyEnvOverrides(pipelineId, result.data);
+
     if (
-      result.data.slackInput.type === 'channel_threads' &&
-      (result.data.slackInput as ChannelThreadsInput).channelIds.length === 0
+      config.slackInput.type === 'channel_threads' &&
+      (config.slackInput as ChannelThreadsInput).channelIds.length === 0
     ) {
+      const envKey = channelIdsEnvKey(pipelineId);
       throw new Error(
         `Pipeline "${pipelineId}" has no channelIds configured. ` +
-          `Add real Slack channel IDs to config/pipelines/${pipelineId}.yaml before enabling.`
+          `Set ${envKey}=id1,id2 or add real Slack channel IDs to config/pipelines/${pipelineId}.yaml before enabling.`
       );
     }
 
-    moduleCache.set(pipelineId, result.data);
-    return result.data;
+    moduleCache.set(pipelineId, config);
+    return config;
   }
 
   /**

@@ -390,23 +390,24 @@ gcloud run services update slack-timeline-retro \
 
 ### Step 5-3: culture-analysis パイプラインの設定
 
-`config/pipelines/culture-analysis.yaml` を編集してチャンネルIDを設定:
+チャンネルIDはコミットしない。`.env` で環境変数として渡す:
 
-```yaml
-slackInput:
-  type: channel_threads
-  channelIds:
-    - C0123456789   # ← 実際のSlackチャンネルIDに変更
-    - C9876543210   # 複数可
+```dotenv
+PIPELINE_IDS=culture-analysis
+CULTURE_ANALYSIS_CHANNEL_IDS=C0123456789,C9876543210
 ```
 
 > チャンネルIDの確認方法: Slackでチャンネルを右クリック → リンクをコピー → URLの末尾 `C` から始まる部分
 
-`.env` に追加:
+Cloud Runの場合は環境変数を更新:
 
-```dotenv
-PIPELINE_IDS=culture-analysis
+```bash
+gcloud run services update slack-timeline-retro \
+  --region asia-northeast1 \
+  --set-env-vars PIPELINE_IDS=culture-analysis,CULTURE_ANALYSIS_CHANNEL_IDS=C0123456789,C9876543210
 ```
+
+命名規則: パイプラインID `culture-analysis` → 環境変数 `CULTURE_ANALYSIS_CHANNEL_IDS`
 
 ### Step 5-4: culture-analysis パイプラインのテスト
 

@@ -1,0 +1,24 @@
+id: has-channels
+command: /test-has-channels
+description: "Test pipeline with pre-configured channel IDs"
+
+slackInput:
+  type: channel_threads
+  channelIds:
+    - C111
+    - C222
+  sampling:
+    strategy: top_engaged
+    maxThreadsPerWeek: 3
+
+stages:
+  - id: weekly_digest
+    unit: week
+    prompt:
+      system: "You summarize threads."
+      user: "Threads:\n{{input}}"
+
+output:
+  destination: self_dm
+  thread: false
+  broadcastFinal: true
