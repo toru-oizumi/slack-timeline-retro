@@ -28,9 +28,7 @@ export class PipelineConfigRepository {
   getById(pipelineId: string): PipelineConfig {
     // Prevent path traversal: only allow alphanumeric, hyphens, and underscores
     if (!/^[a-z0-9_-]+$/i.test(pipelineId)) {
-      throw new Error(
-        `Invalid pipeline ID "${pipelineId}": must match [a-z0-9_-]+`
-      );
+      throw new Error(`Invalid pipeline ID "${pipelineId}": must match [a-z0-9_-]+`);
     }
 
     const cached = moduleCache.get(pipelineId);
@@ -49,9 +47,7 @@ export class PipelineConfigRepository {
     const parsed = parse(raw) as unknown;
     const result = PipelineConfigSchema.safeParse(parsed);
     if (!result.success) {
-      throw new Error(
-        `Invalid pipeline config "${pipelineId}": ${result.error.message}`
-      );
+      throw new Error(`Invalid pipeline config "${pipelineId}": ${result.error.message}`);
     }
 
     if (result.data.id !== pipelineId) {

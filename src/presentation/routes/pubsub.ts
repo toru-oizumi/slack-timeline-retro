@@ -5,10 +5,10 @@ import { defaultAIConfig, type Locale } from '@/infrastructure/config';
 import { DateService } from '@/infrastructure/date';
 import { JobRepository } from '@/infrastructure/firestore';
 import {
-  PipelineConfigRepository,
-  StageUnitMapper,
-  type StageUnit,
   type ChannelThreadsInput,
+  PipelineConfigRepository,
+  type StageUnit,
+  StageUnitMapper,
 } from '@/infrastructure/pipeline';
 import {
   decodePubSubMessage,
@@ -323,8 +323,7 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
       // === Pipeline path ===
       const pipelineRepo = new PipelineConfigRepository();
       const pipeline = pipelineRepo.getById(message.pipelineId);
-      const stage =
-        pipeline.stages.find((s) => s.id === message.stageId) ?? pipeline.stages[0];
+      const stage = pipeline.stages.find((s) => s.id === message.stageId) ?? pipeline.stages[0];
 
       const startDate = new Date(message.dateRange.start);
       const endDate = new Date(message.dateRange.end);
@@ -570,9 +569,7 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
           );
 
           // Filter out months with no posts
-          const validMonths = monthlyResults.filter(
-            (r): r is NonNullable<typeof r> => r !== null
-          );
+          const validMonths = monthlyResults.filter((r): r is NonNullable<typeof r> => r !== null);
 
           // Post monthly summaries to Slack sequentially (preserve order + rate limiting)
           const monthlySummaries: Summary[] = [];
@@ -722,7 +719,6 @@ function getGroupKey(date: Date, unit: StageUnit): string {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const quarter = Math.ceil(month / 3);
-  const day = date.getDate();
 
   switch (unit) {
     case 'all_years':

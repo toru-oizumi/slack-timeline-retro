@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DateRange } from '@/domain';
-import { DateService } from '@/infrastructure/date/DateService';
+import type { DateService } from '@/infrastructure/date/DateService';
 import { StageUnitMapper } from '@/infrastructure/pipeline/StageUnitMapper';
 
 describe('StageUnitMapper', () => {

@@ -1,5 +1,10 @@
 import { WebClient } from '@slack/web-api';
-import type { ISlackRepository, SlackChannelInfo, SlackUserInfo, ThreadSamplingConfig } from '@/domain';
+import type {
+  ISlackRepository,
+  SlackChannelInfo,
+  SlackUserInfo,
+  ThreadSamplingConfig,
+} from '@/domain';
 import {
   type DateRange,
   Post,
@@ -509,8 +514,9 @@ export class SlackRepository implements ISlackRepository {
         const replyCount = (msg as { reply_count?: number }).reply_count ?? 0;
         if (replyCount === 0) continue;
 
-        const reactionCount = ((msg as { reactions?: Array<{ count: number }> }).reactions ?? [])
-          .reduce((sum, r) => sum + r.count, 0);
+        const reactionCount = (
+          (msg as { reactions?: Array<{ count: number }> }).reactions ?? []
+        ).reduce((sum, r) => sum + r.count, 0);
 
         parents.push({ ts: msg.ts, text: msg.text, replyCount, reactionCount });
       }

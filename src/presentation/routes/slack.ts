@@ -3,9 +3,9 @@ import { Hono } from 'hono';
 import { DateService } from '@/infrastructure/date';
 import { JobRepository, TokenRepository } from '@/infrastructure/firestore';
 import {
-  PipelineConfigRepository,
   type ChannelThreadsInput,
   type PipelineConfig,
+  PipelineConfigRepository,
 } from '@/infrastructure/pipeline';
 import { PubSubClient } from '@/infrastructure/pubsub';
 import { SlackRepository } from '@/infrastructure/slack';
@@ -190,7 +190,9 @@ slackRoutes.post('/slack/command', async (c) => {
 
   // Check if this command is handled by a pipeline config
   const pipelineIds = env.PIPELINE_IDS
-    ? env.PIPELINE_IDS.split(',').map((s) => s.trim()).filter(Boolean)
+    ? env.PIPELINE_IDS.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
     : [];
   let activePipelineId: string | undefined;
   let pipelineRepo: PipelineConfigRepository | undefined;
@@ -255,7 +257,7 @@ slackRoutes.post('/slack/command', async (c) => {
       type: 'yearly',
       year: years[0],
       years,
-      pipelineId: activePipelineId!,
+      pipelineId: activePipelineId,
       userId,
       channelId: selfDmChannelId,
       threadTs,
