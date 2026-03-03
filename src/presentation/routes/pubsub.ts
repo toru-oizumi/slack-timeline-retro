@@ -680,7 +680,11 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
             });
 
             const years = job.years && job.years.length > 0 ? job.years : [job.year];
-            const header = formatGroupHeader(stage.unit, group.date, locale, years);
+            // Use stage's explicit header override if defined; otherwise auto-generate.
+            const header =
+              stage.header !== undefined
+                ? stage.header
+                : formatGroupHeader(stage.unit, group.date, locale, years);
             await slackRepository.postToSelfDM({
               channelId: job.channelId,
               text: header ? `${header}\n\n${generated.content}` : generated.content,

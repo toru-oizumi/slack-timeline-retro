@@ -37,6 +37,13 @@ export const StageConfigSchema = z.object({
    * preceding stage's results regardless of this value.
    */
   inputSource: z.string().optional(),
+  /**
+   * Optional override for the section header posted to Slack before this stage's output.
+   * If set, replaces the auto-generated header (e.g. "📋 *2025年〜2026年 年次比較レポート*").
+   * Set to "" (empty string) to suppress the header entirely.
+   * If omitted, the header is generated automatically based on the stage unit.
+   */
+  header: z.string().optional(),
   prompt: StagePromptSchema,
 });
 export type StageConfig = z.infer<typeof StageConfigSchema>;
