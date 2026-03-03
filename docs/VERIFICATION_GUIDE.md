@@ -222,15 +222,43 @@ gcloud auth login
 gcloud auth configure-docker asia-northeast1-docker.pkg.dev
 ```
 
-### Step 3-2: 環境変数を設定してデプロイ
+### Step 3-2: Secret Manager にシークレットを登録
+
+機密情報は Secret Manager で管理します（平文で Cloud Run に渡さない）。
 
 ```bash
 export GCP_PROJECT_ID=your-project-id
-export SLACK_BOT_TOKEN=xoxb-...
-export SLACK_CLIENT_ID=...
-export SLACK_CLIENT_SECRET=...
-export SLACK_SIGNING_SECRET=...
-export ANTHROPIC_API_KEY=sk-ant-...   # または OPENAI_API_KEY
+
+# シークレットを登録（初回のみ）
+for SECRET_NAME in SLACK_BOT_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_ID SLACK_CLIENT_SECRET OPENAI_API_KEY; do
+  echo -n "値を入力 ($SECRET_NAME): "
+  read -rs VALUE
+  echo
+  if gcloud secrets describe "$SECRET_NAME" --project="$GCP_PROJECT_ID" &>/dev/null; then
+    printf '%s' "$VALUE" | gcloud secrets versions add "$SECRET_NAME" --data-file=- --project="$GCP_PROJECT_ID"
+  else
+    printf '%s' "$VALUE" | gcloud secrets create "$SECRET_NAME" --data-file=- --project="$GCP_PROJECT_ID" --replication-policy=automatic
+  fi
+done
+```
+
+Cloud Run のサービスアカウントに Secret Accessor 権限を付与:
+
+```bash
+PROJECT_NUMBER=$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')
+SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
+  --member="serviceAccount:${SA}" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+### Step 3-3: 非機密設定を環境変数に設定してデプロイ
+
+機密情報（Slack トークン、API キー）は Secret Manager から自動的に読み込まれます。
+
+```bash
+export GCP_PROJECT_ID=your-project-id
 export TARGET_YEAR=2025
 export LOCALE=ja_JP
 
@@ -239,27 +267,28 @@ export LOCALE=ja_JP
 
 デプロイ完了後に表示される `SERVICE_URL` を控えておく。
 
-### Step 3-3: Pub/Sub インフラのセットアップ
+### Step 3-5: Pub/Sub インフラのセットアップ
 
 ```bash
+export GCP_PROJECT_ID=your-project-id
 ./scripts/setup-pubsub.sh
 # summary-jobs, weekly-tasks, posting-tasks, summary-dlq トピックが作成される
 # Push サブスクリプションが Cloud Run エンドポイントに向けられる
 ```
 
-### Step 3-4: Slack App の URL を Cloud Run に更新
+### Step 3-6: Slack App の URL を Cloud Run に更新
 
 - **Slash Command URL**: `https://<SERVICE_URL>/slack/command`
 - **OAuth Redirect URL**: `https://<SERVICE_URL>/oauth/callback`
 
-### Step 3-5: ヘルスチェック
+### Step 3-7: ヘルスチェック
 
 ```bash
 curl https://<SERVICE_URL>/health
 # {"status":"ok","timestamp":"..."}
 ```
 
-### Step 3-6: Cloud Run ログ確認
+### Step 3-8: Cloud Run ログ確認
 
 ```bash
 gcloud run logs read slack-timeline-retro \
