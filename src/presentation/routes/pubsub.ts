@@ -61,6 +61,12 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
       return c.json({ error: 'Job not found' }, 404);
     }
 
+    // Idempotency check: only orchestrate jobs that are still pending
+    if (job.status !== 'pending') {
+      console.log(`Job ${job.id} is already ${job.status}, skipping orchestration (Pub/Sub retry)`);
+      return c.json({ success: true, skipped: true });
+    }
+
     // Update job status to processing
     await jobRepository.updateJobStatus(job.id, 'processing');
 
