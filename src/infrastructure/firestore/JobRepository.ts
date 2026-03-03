@@ -264,15 +264,19 @@ export class JobRepository {
   ): Promise<void> {
     const weekId = `week_${weekNumber.toString().padStart(2, '0')}`;
 
+    const updateData: Record<string, unknown> = {
+      status: update.status,
+      updatedAt: Timestamp.now(),
+    };
+    if (update.content !== undefined) updateData.content = update.content;
+    if (update.error !== undefined) updateData.error = update.error;
+
     await this.db
       .collection(this.jobsCollection)
       .doc(jobId)
       .collection(this.weeksSubcollection)
       .doc(weekId)
-      .update({
-        ...update,
-        updatedAt: Timestamp.now(),
-      });
+      .update(updateData);
 
     console.log(`Week ${weekNumber} for job ${jobId} updated to: ${update.status}`);
   }
