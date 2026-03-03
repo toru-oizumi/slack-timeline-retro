@@ -106,9 +106,6 @@ export class JobRepository {
       id: jobId,
       type: params.type,
       year: params.year,
-      years: params.years,
-      month: params.month,
-      pipelineId: params.pipelineId,
       userId: params.userId,
       channelId: params.channelId,
       threadTs: params.threadTs,
@@ -120,6 +117,11 @@ export class JobRepository {
       createdAt: now,
       updatedAt: now,
     };
+
+    // Optional fields: omit undefined to satisfy Firestore's strict type requirements
+    if (params.years !== undefined) job.years = params.years;
+    if (params.month !== undefined) job.month = params.month;
+    if (params.pipelineId !== undefined) job.pipelineId = params.pipelineId;
 
     await this.db
       .collection(this.jobsCollection)
