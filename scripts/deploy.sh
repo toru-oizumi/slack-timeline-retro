@@ -5,6 +5,14 @@ set -euo pipefail
 # Cloud Run Deployment Script
 # ============================================
 
+# Load .env if present (set -a exports all variables to subprocesses)
+if [ -f "$(dirname "$0")/../.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$(dirname "$0")/../.env"
+  set +a
+fi
+
 # Configuration (override with environment variables)
 PROJECT_ID="${GCP_PROJECT_ID:-}"
 REGION="${GCP_REGION:-asia-northeast1}"
