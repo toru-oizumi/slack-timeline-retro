@@ -439,6 +439,12 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
       return c.json({ error: 'Job not found' }, 404);
     }
 
+    // Idempotency check: skip if job already posted
+    if (job.status === 'completed' || job.status === 'error') {
+      console.log(`Job ${job.id} already ${job.status}, skipping posting (Pub/Sub retry)`);
+      return c.json({ success: true, skipped: true });
+    }
+
     // Update job status to posting
     await jobRepository.updateJobStatus(job.id, 'posting');
 
