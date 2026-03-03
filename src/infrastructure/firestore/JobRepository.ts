@@ -8,6 +8,8 @@ export interface JobDocument {
   id: string;
   type: SummaryType;
   year: number;
+  /** All years for multi-year pipeline jobs (e.g. culture analysis with YoY comparison). */
+  years?: number[];
   month?: number;
   /** Pipeline ID when using configurable pipelines. Absent for legacy jobs. */
   pipelineId?: string;
@@ -48,6 +50,8 @@ export interface WeekTaskDocument {
 export interface CreateJobParams {
   type: SummaryType;
   year: number;
+  /** All years for multi-year pipeline jobs. When provided, job covers all specified years. */
+  years?: number[];
   month?: number;
   /** Pipeline ID when using configurable pipelines. Omit for legacy jobs. */
   pipelineId?: string;
@@ -102,6 +106,7 @@ export class JobRepository {
       id: jobId,
       type: params.type,
       year: params.year,
+      years: params.years,
       month: params.month,
       pipelineId: params.pipelineId,
       userId: params.userId,
@@ -148,6 +153,7 @@ export class JobRepository {
       id: jobId,
       type: data.type,
       year: data.year,
+      years: data.years as number[] | undefined,
       month: data.month,
       pipelineId: data.pipelineId,
       userId: data.userId,
@@ -162,17 +168,6 @@ export class JobRepository {
       createdAt: data.createdAt?.toDate() ?? new Date(),
       updatedAt: data.updatedAt?.toDate() ?? new Date(),
     };
-  }
-
-  /**
-   * Update job's totalTasks count (used when pipeline task count is known after orchestration)
-   */
-  async updateTotalTasks(jobId: string, totalTasks: number): Promise<void> {
-    await this.db.collection(this.jobsCollection).doc(jobId).update({
-      totalTasks,
-      updatedAt: Timestamp.now(),
-    });
-    console.log(`Job ${jobId} totalTasks updated to: ${totalTasks}`);
   }
 
   /**
@@ -369,6 +364,18 @@ export class JobRepository {
 
     console.log(`Job ${jobId} completed tasks: ${newCount}`);
     return newCount;
+  }
+
+  /**
+   * Update the total task count for a job.
+   * Call this in the orchestrate handler once the actual number of tasks is known.
+   */
+  async updateTotalTasks(jobId: string, totalTasks: number): Promise<void> {
+    await this.db.collection(this.jobsCollection).doc(jobId).update({
+      totalTasks,
+      updatedAt: Timestamp.now(),
+    });
+    console.log(`Job ${jobId} totalTasks updated to: ${totalTasks}`);
   }
 
   /**

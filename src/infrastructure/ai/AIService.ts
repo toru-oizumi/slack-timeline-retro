@@ -124,6 +124,7 @@ export class AIService implements IAIService {
   async generateForStage(params: {
     prompt: { system: string; user: string };
     input: string;
+    stageType?: string;
   }): Promise<GeneratedContent> {
     const messages = this.buildMessages(
       { system: params.prompt.system, user: params.prompt.user },

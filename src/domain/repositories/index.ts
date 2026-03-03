@@ -8,4 +8,5 @@ export type {
   ISlackRepository,
   SlackChannelInfo,
   SlackUserInfo,
+  ThreadSamplingConfig,
 } from './ISlackRepository';

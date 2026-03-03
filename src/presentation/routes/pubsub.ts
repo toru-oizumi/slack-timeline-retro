@@ -8,6 +8,7 @@ import {
   PipelineConfigRepository,
   StageUnitMapper,
   type StageUnit,
+  type ChannelThreadsInput,
 } from '@/infrastructure/pipeline';
 import {
   decodePubSubMessage,
@@ -81,10 +82,8 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
               end: weeks[0].end.toISOString(),
             },
           };
-
           // Create week task in Firestore before publishing so week-worker can update it
           await jobRepository.createWeekTasksBatch([weekTask]);
-
           await pubsubClient.publishWeekTask(weekTask);
           console.log(`Published 1 week task for weekly job ${job.id}`);
           break;
@@ -145,33 +144,65 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
         const pipelineRepo = new PipelineConfigRepository();
         const pipeline = pipelineRepo.getById(job.pipelineId);
         const baseStage = pipeline.stages[0];
-
         const stageUnitMapper = new StageUnitMapper(dateService);
-        const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, job.year);
 
-        const weekTasks: WeekTaskMessage[] = ranges.map((range, index) => ({
-          jobId: job.id,
-          weekNumber: index + 1,
-          year: job.year,
-          dateRange: {
-            start: range.start.toISOString(),
-            end: range.end.toISOString(),
-          },
-          pipelineId: job.pipelineId,
-          stageId: baseStage.id,
-        }));
+        // Support multi-year jobs (e.g. culture analysis with YoY comparison)
+        const pipelineYears = job.years && job.years.length > 0 ? job.years : [job.year];
 
-        // Update totalTasks to the actual number of base-stage ranges
+        const weekTasks: WeekTaskMessage[] = [];
+        let taskNum = 1;
+
+        if (pipeline.slackInput.type === 'channel_threads') {
+          // channel_threads: one task per (channel × date range × year)
+          const channelIds = (pipeline.slackInput as ChannelThreadsInput).channelIds;
+          for (const channelId of channelIds) {
+            for (const year of pipelineYears) {
+              const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
+              for (const range of ranges) {
+                weekTasks.push({
+                  jobId: job.id,
+                  weekNumber: taskNum++,
+                  year,
+                  dateRange: {
+                    start: range.start.toISOString(),
+                    end: range.end.toISOString(),
+                  },
+                  pipelineId: job.pipelineId,
+                  stageId: baseStage.id,
+                  channelId,
+                });
+              }
+            }
+          }
+        } else {
+          // user_posts: one task per (date range × year)
+          for (const year of pipelineYears) {
+            const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
+            for (const range of ranges) {
+              weekTasks.push({
+                jobId: job.id,
+                weekNumber: taskNum++,
+                year,
+                dateRange: {
+                  start: range.start.toISOString(),
+                  end: range.end.toISOString(),
+                },
+                pipelineId: job.pipelineId,
+                stageId: baseStage.id,
+              });
+            }
+          }
+        }
+
+        // Update totalTasks to match actual task count computed from pipeline ranges
         await jobRepository.updateTotalTasks(job.id, weekTasks.length);
-
         await jobRepository.createWeekTasksBatch(weekTasks);
         await pubsubClient.publishWeekTasksBatch(weekTasks);
         console.log(
-          `Pipeline: Published ${weekTasks.length} tasks for job ${job.id} (pipeline: ${job.pipelineId})`
+          `Pipeline: Published ${weekTasks.length} tasks for job ${job.id} (pipeline: ${job.pipelineId}, years: ${pipelineYears.join(', ')})`
         );
       } catch (pipelineErr) {
-        const errMsg =
-          pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
+        const errMsg = pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
         console.error(`Pipeline setup error for job ${job.id}:`, errMsg);
         await jobRepository.updateJobStatus(job.id, 'error', errMsg);
         return c.json({ error: errMsg }, 500);
@@ -299,24 +330,51 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
       const endDate = new Date(message.dateRange.end);
       const dateRange = DateRange.create(startDate, endDate);
 
-      // 'caller' maps to the invoking user; otherwise use the configured user ID
-      const effectiveUserId =
-        pipeline.slackInput.userId === 'caller' ? job.userId : pipeline.slackInput.userId;
-      const posts = await slackRepository.fetchUserPosts({ userId: effectiveUserId, dateRange });
-
-      if (posts.length === 0) {
-        content = '';
-        console.log(`Pipeline week ${message.weekNumber}: No posts found for job ${job.id}`);
-      } else {
-        const postsText = posts.map((p) => p.toSummaryFormat()).join('\n');
-        const generated = await aiService.generateForStage({
-          prompt: stage.prompt,
-          input: postsText,
+      if (message.channelId) {
+        // === channel_threads path ===
+        const sampling = (pipeline.slackInput as ChannelThreadsInput).sampling;
+        const threads = await slackRepository.fetchChannelThreads({
+          channelId: message.channelId,
+          dateRange,
+          sampling,
         });
-        content = generated.content;
-        console.log(
-          `Pipeline week ${message.weekNumber} summary generated for job ${job.id}`
-        );
+
+        if (threads.length === 0) {
+          content = '';
+          console.log(
+            `Pipeline week ${message.weekNumber}: No threads found in channel ${message.channelId}`
+          );
+        } else {
+          const threadsText = threads.map((t) => t.toSummaryFormat()).join('\n\n---\n\n');
+          const generated = await aiService.generateForStage({
+            prompt: stage.prompt,
+            input: threadsText,
+          });
+          content = generated.content;
+          console.log(
+            `Pipeline week ${message.weekNumber} (channel ${message.channelId}) digest generated for job ${job.id}`
+          );
+        }
+      } else {
+        // === user_posts path ===
+        // 'caller' maps to the invoking user; otherwise use the configured user ID
+        const userPostsInput = pipeline.slackInput as { type: 'user_posts'; userId: string };
+        const effectiveUserId =
+          userPostsInput.userId === 'caller' ? job.userId : userPostsInput.userId;
+        const posts = await slackRepository.fetchUserPosts({ userId: effectiveUserId, dateRange });
+
+        if (posts.length === 0) {
+          content = '';
+          console.log(`Pipeline week ${message.weekNumber}: No posts found for job ${job.id}`);
+        } else {
+          const postsText = posts.map((p) => p.toSummaryFormat()).join('\n');
+          const generated = await aiService.generateForStage({
+            prompt: stage.prompt,
+            input: postsText,
+          });
+          content = generated.content;
+          console.log(`Pipeline week ${message.weekNumber} summary generated for job ${job.id}`);
+        }
       }
     }
 
@@ -556,9 +614,9 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
       }));
 
       if (pipeline.stages.length === 1) {
-        // Single-stage pipeline: post base results directly
+        // Single-stage pipeline: post base stage results directly
         for (const result of prevResults) {
-          if (result.content.length > 0) {
+          if (result.content) {
             await slackRepository.postToSelfDM({
               channelId: job.channelId,
               text: result.content,
@@ -664,14 +722,17 @@ function getGroupKey(date: Date, unit: StageUnit): string {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const quarter = Math.ceil(month / 3);
+  const day = date.getDate();
 
   switch (unit) {
-    case 'month':
-      return `${year}-${String(month).padStart(2, '0')}`;
-    case 'quarter':
-      return `${year}-Q${quarter}`;
+    case 'all_years':
+      return 'all';
     case 'year':
       return `${year}`;
+    case 'quarter':
+      return `${year}-Q${quarter}`;
+    case 'month':
+      return `${year}-${String(month).padStart(2, '0')}`;
     case 'week': {
       // ISO 8601 week number: align to Thursday's year for cross-year weeks
       const utc = new Date(Date.UTC(year, date.getMonth(), date.getDate()));

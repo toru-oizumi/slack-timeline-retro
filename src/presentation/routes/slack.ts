@@ -2,7 +2,11 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { DateService } from '@/infrastructure/date';
 import { JobRepository, TokenRepository } from '@/infrastructure/firestore';
-import { PipelineConfigRepository } from '@/infrastructure/pipeline';
+import {
+  PipelineConfigRepository,
+  type ChannelThreadsInput,
+  type PipelineConfig,
+} from '@/infrastructure/pipeline';
 import { PubSubClient } from '@/infrastructure/pubsub';
 import { SlackRepository } from '@/infrastructure/slack';
 import { defaultWorkspaceConfig } from '@/shared/config';
@@ -76,6 +80,50 @@ function calculateTotalTasks(type: 'weekly' | 'monthly' | 'yearly', year: number
 }
 
 /**
+ * Parse year arguments from pipeline command text.
+ * Returns sorted unique years found, or [currentYear] if none.
+ * Example: "/analyze-culture 2023 2024 2025" → [2023, 2024, 2025]
+ */
+function parsePipelineYears(text: string): number[] {
+  const currentYear = new Date().getFullYear();
+  const years = [...text.matchAll(/\b(20\d{2})\b/g)].map((m) => Number(m[1]));
+  return years.length > 0 ? [...new Set(years)].sort() : [currentYear];
+}
+
+/**
+ * Calculate total week tasks for a pipeline job spanning one or more years.
+ * For channel_threads: channelIds.length × total dateRanges across all years
+ * For user_posts: total dateRanges across all years
+ */
+function calculatePipelineTotalTasks(pipeline: PipelineConfig, years: number[]): number {
+  const dateService = new DateService();
+  const baseStage = pipeline.stages[0];
+
+  let dateRangeCount: number;
+  switch (baseStage.unit) {
+    case 'week':
+      dateRangeCount = years.reduce(
+        (sum, year) => sum + dateService.getAllWeeksInYear(year).length,
+        0
+      );
+      break;
+    case 'month':
+      dateRangeCount = 12 * years.length;
+      break;
+    case 'year':
+      dateRangeCount = years.length;
+      break;
+    default:
+      throw new Error(`Unsupported baseStage.unit: ${String(baseStage.unit)}`);
+  }
+
+  if (pipeline.slackInput.type === 'channel_threads') {
+    return (pipeline.slackInput as ChannelThreadsInput).channelIds.length * dateRangeCount;
+  }
+  return dateRangeCount;
+}
+
+/**
  * Parse command to get summary type and options
  * Defaults to 'yearly' if no type specified
  */
@@ -142,20 +190,16 @@ slackRoutes.post('/slack/command', async (c) => {
 
   // Check if this command is handled by a pipeline config
   const pipelineIds = env.PIPELINE_IDS
-    ? env.PIPELINE_IDS.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+    ? env.PIPELINE_IDS.split(',').map((s) => s.trim()).filter(Boolean)
     : [];
   let activePipelineId: string | undefined;
+  let pipelineRepo: PipelineConfigRepository | undefined;
   if (pipelineIds.length > 0) {
-    const pipelineRepo = new PipelineConfigRepository();
+    pipelineRepo = new PipelineConfigRepository();
     pipelineRepo.loadAll(pipelineIds);
     const matched = pipelineRepo.findByCommand(payload.command);
     activePipelineId = matched?.id;
   }
-
-  // Parse command to get type (defaults to yearly if not specified)
-  const { type: parsedType, includePrivate, includeDM, includeGroup } = parseCommand(payload.text);
-  // Pipeline jobs always run as 'yearly' — the base stage unit controls the range granularity
-  const type = activePipelineId ? 'yearly' : parsedType;
 
   // Check for user token (OAuth authorization)
   const tokenRepository = new TokenRepository();
@@ -186,6 +230,53 @@ slackRoutes.post('/slack/command', async (c) => {
   const selfDmChannelId = await slackRepository.openSelfDMChannel(userId);
   console.log(`Opened self-DM channel: ${selfDmChannelId} for user: ${userId}`);
 
+  // Refresh token expiration on use
+  await tokenRepository.refreshToken(userId);
+
+  if (activePipelineId && pipelineRepo) {
+    // === Pipeline path ===
+    const pipeline = pipelineRepo.getById(activePipelineId);
+    const years = parsePipelineYears(payload.text);
+
+    // Post start message
+    const startMessage = `🔄 *Running ${pipeline.description || payload.command}...*\n_Analyzing: ${years.join(', ')}_`;
+    const threadTs = await slackRepository.postToSelfDM({
+      channelId: selfDmChannelId,
+      text: startMessage,
+    });
+    console.log(`Thread created: channel=${selfDmChannelId}, thread_ts=${threadTs}`);
+
+    // Create one job covering all years (enables all_years stage for YoY comparison)
+    const jobRepository = new JobRepository();
+    const pubsubClient = new PubSubClient();
+
+    const totalTasks = calculatePipelineTotalTasks(pipeline, years);
+    const job = await jobRepository.createJob({
+      type: 'yearly',
+      year: years[0],
+      years,
+      pipelineId: activePipelineId!,
+      userId,
+      channelId: selfDmChannelId,
+      threadTs,
+      userToken,
+      totalTasks,
+      options: { includePrivate: false, includeDM: false, includeGroup: false },
+    });
+    await pubsubClient.publishSummaryJob({ jobId: job.id });
+    console.log(
+      `Pipeline job created: ${job.id}, years: ${years.join(', ')}, pipeline: ${activePipelineId}`
+    );
+
+    return c.json({
+      response_type: 'ephemeral',
+      text: `🚀 Starting ${payload.command} for ${years.join(', ')}... Check your self-DM!`,
+    });
+  }
+
+  // === Legacy path ===
+  const { type, includePrivate, includeDM, includeGroup } = parseCommand(payload.text);
+
   // Post start message to create thread (using user token)
   const optionNotes: string[] = [];
   if (includePrivate) optionNotes.push('📁 private channels');
@@ -199,9 +290,6 @@ slackRoutes.post('/slack/command', async (c) => {
     text: startMessage,
   });
   console.log(`Thread created: channel=${selfDmChannelId}, thread_ts=${threadTs}`);
-
-  // Refresh token expiration on use
-  await tokenRepository.refreshToken(userId);
 
   // Get target year from environment or default to current year
   const targetYear = Number(env.TARGET_YEAR) || new Date().getFullYear();

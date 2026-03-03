@@ -53,6 +53,7 @@ describe('Summary Generation Flow', () => {
       }),
       getUserInfo: vi.fn(),
       getJoinedChannels: vi.fn(),
+      fetchChannelThreads: vi.fn(),
     };
 
     mockAIService = {

@@ -2,10 +2,15 @@ import { z } from 'zod';
 
 /**
  * Atomic time unit for pipeline stages.
+ * Time-based: day | week | month | quarter | year
+ * Special:    all_years = aggregate all year-level results within the job into a single group.
+ *             With one year, it produces a single-year profile; with multiple years it enables
+ *             year-over-year comparison. The job must include the desired years at creation time.
+ *
  * Supported for base stage (range generation): week | month | year
- * Supported for aggregation grouping: week | month | quarter | year | day
+ * Supported for aggregation grouping: day | week | month | quarter | year | all_years
  */
-export const StageUnitSchema = z.enum(['day', 'week', 'month', 'quarter', 'year']);
+export const StageUnitSchema = z.enum(['day', 'week', 'month', 'quarter', 'year', 'all_years']);
 export type StageUnit = z.infer<typeof StageUnitSchema>;
 
 /** Units supported by StageUnitMapper.getRangesForYear() for base stage processing */
@@ -37,13 +42,43 @@ export const StageConfigSchema = z.object({
 export type StageConfig = z.infer<typeof StageConfigSchema>;
 
 /**
- * Slack input configuration
+ * Sampling configuration for channel_threads input
  */
-export const SlackInputSchema = z.object({
+export const SamplingConfigSchema = z.object({
+  /** Scoring strategy for thread selection */
+  strategy: z.enum(['top_engaged', 'random', 'recent']),
+  /** Max threads to fetch per channel per week */
+  maxThreadsPerWeek: z.number().int().positive(),
+});
+export type SamplingConfig = z.infer<typeof SamplingConfigSchema>;
+
+/**
+ * Slack input: individual user's posts (existing behavior)
+ */
+export const UserPostsInputSchema = z.object({
   type: z.literal('user_posts'),
   /** 'caller' maps to the invoking user's ID at runtime */
   userId: z.string().min(1),
 });
+export type UserPostsInput = z.infer<typeof UserPostsInputSchema>;
+
+/**
+ * Slack input: threads across specified channels (culture analysis)
+ */
+export const ChannelThreadsInputSchema = z.object({
+  type: z.literal('channel_threads'),
+  channelIds: z.array(z.string().min(1)).min(0),
+  sampling: SamplingConfigSchema,
+});
+export type ChannelThreadsInput = z.infer<typeof ChannelThreadsInputSchema>;
+
+/**
+ * Slack input configuration (discriminated union)
+ */
+export const SlackInputSchema = z.discriminatedUnion('type', [
+  UserPostsInputSchema,
+  ChannelThreadsInputSchema,
+]);
 export type SlackInput = z.infer<typeof SlackInputSchema>;
 
 /**

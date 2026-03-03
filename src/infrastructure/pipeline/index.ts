@@ -1,3 +1,12 @@
 export { PipelineConfigRepository } from './PipelineConfigRepository';
 export { StageUnitMapper } from './StageUnitMapper';
-export type { PipelineConfig, StageConfig, StagePrompt, StageUnit } from './types';
+export type {
+  ChannelThreadsInput,
+  PipelineConfig,
+  SamplingConfig,
+  SlackInput,
+  StageConfig,
+  StagePrompt,
+  StageUnit,
+  UserPostsInput,
+} from './types';
