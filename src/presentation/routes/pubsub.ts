@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { DateRange, SlackChannel, Summary } from '@/domain';
+import { DateRange, Summary } from '@/domain';
 import { AIService } from '@/infrastructure/ai';
 import { defaultAIConfig, type Locale } from '@/infrastructure/config';
 import { DateService } from '@/infrastructure/date';
@@ -21,7 +21,6 @@ import {
 import { SlackRepository } from '@/infrastructure/slack';
 import { loadConfig, loadWorkspaceConfig } from '@/shared/config';
 import type { Env } from '@/shared/types';
-import { GenerateWeeklySummary } from '@/usecases';
 
 const pubsubRoutes = new Hono<{ Bindings: Env }>();
 
@@ -306,33 +305,24 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
 
     if (!message.pipelineId) {
       // === Legacy path ===
-      // Create channel for posting (but we won't post individual weeks)
-      const channel = SlackChannel.create(job.channelId, job.threadTs);
-
-      // Parse date range
+      // Fetch and generate only — posting is handled by the posting worker.
+      // Do NOT use GenerateWeeklySummary here: that use case also posts to Slack,
+      // which would cause duplicate messages alongside the posting worker.
       const startDate = new Date(message.dateRange.start);
+      const dateRange = DateRange.forWeek(startDate);
 
-      // Generate weekly summary
-      const usecase = new GenerateWeeklySummary(slackRepository, aiService);
-      const result = await usecase.execute({
+      const posts = await slackRepository.fetchUserPosts({
         userId: job.userId,
-        targetDate: startDate,
-        year: job.year,
-        channel, // Not used for posting in batch mode
+        dateRange,
       });
 
-      if (result.ok) {
-        content = result.value.content;
-        console.log(`Week ${message.weekNumber} summary generated for job ${job.id}`);
+      if (posts.length === 0) {
+        content = ''; // Empty content for weeks with no posts
+        console.log(`Week ${message.weekNumber}: No posts found for job ${job.id}`);
       } else {
-        // For "no posts found", treat as empty content rather than error
-        if (result.error.message.includes('No posts found')) {
-          content = ''; // Empty content for weeks with no posts
-          console.log(`Week ${message.weekNumber}: No posts found for job ${job.id}`);
-        } else {
-          error = result.error.message;
-          console.error(`Week ${message.weekNumber} error: ${error}`);
-        }
+        const generated = await aiService.generateWeeklySummary(posts);
+        content = generated.content;
+        console.log(`Week ${message.weekNumber} summary generated for job ${job.id}`);
       }
     } else {
       // === Pipeline path ===
