@@ -106,90 +106,83 @@ build_and_push() {
 }
 
 # Deploy to Cloud Run
+# Sensitive values are loaded from Secret Manager (--set-secrets).
+# Non-sensitive config is passed as plain env vars (--set-env-vars).
 deploy_cloud_run() {
   local IMAGE_URI="$1"
 
   log_info "Deploying to Cloud Run..."
 
-  # Check if required secrets are set
-  if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${SLACK_SIGNING_SECRET:-}" ] || [ -z "${SLACK_CLIENT_ID:-}" ] || [ -z "${SLACK_CLIENT_SECRET:-}" ]; then
-    log_warn "Required Slack environment variables are not set."
-    log_warn "You'll need to set them in Cloud Run console or update the service later."
+  # Secrets stored in Secret Manager (name=SECRET_NAME:latest)
+  local SECRETS="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest"
+  SECRETS="${SECRETS},SLACK_SIGNING_SECRET=SLACK_SIGNING_SECRET:latest"
+  SECRETS="${SECRETS},SLACK_CLIENT_ID=SLACK_CLIENT_ID:latest"
+  SECRETS="${SECRETS},SLACK_CLIENT_SECRET=SLACK_CLIENT_SECRET:latest"
 
-    gcloud run deploy "$SERVICE_NAME" \
-      --image "$IMAGE_URI" \
-      --region "$REGION" \
-      --platform managed \
-      --allow-unauthenticated \
-      --port 8080 \
-      --memory 512Mi \
-      --cpu 1 \
-      --min-instances 0 \
-      --max-instances 10 \
-      --timeout 3600 \
-      --no-cpu-throttling
-  else
-    # Build environment variables string
-    local ENV_VARS="SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN},SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET},SLACK_CLIENT_ID=${SLACK_CLIENT_ID},SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET}"
-
-    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-      ENV_VARS="${ENV_VARS},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
-    fi
-
-    if [ -n "${OPENAI_API_KEY:-}" ]; then
-      ENV_VARS="${ENV_VARS},OPENAI_API_KEY=${OPENAI_API_KEY}"
-    fi
-
-    if [ -n "${TARGET_YEAR:-}" ]; then
-      ENV_VARS="${ENV_VARS},TARGET_YEAR=${TARGET_YEAR}"
-    fi
-
-    if [ -n "${LOCALE:-}" ]; then
-      ENV_VARS="${ENV_VARS},LOCALE=${LOCALE}"
-    fi
-
-    if [ -n "${INCLUDE_PRIVATE_CHANNELS:-}" ]; then
-      ENV_VARS="${ENV_VARS},INCLUDE_PRIVATE_CHANNELS=${INCLUDE_PRIVATE_CHANNELS}"
-    fi
-
-    if [ -n "${AI_MODEL:-}" ]; then
-      ENV_VARS="${ENV_VARS},AI_MODEL=${AI_MODEL}"
-    fi
-
-    if [ -n "${AI_MAX_TOKENS:-}" ]; then
-      ENV_VARS="${ENV_VARS},AI_MAX_TOKENS=${AI_MAX_TOKENS}"
-    fi
-
-    if [ -n "${INCLUDE_CHANNELS:-}" ]; then
-      ENV_VARS="${ENV_VARS},INCLUDE_CHANNELS=${INCLUDE_CHANNELS}"
-    fi
-
-    if [ -n "${EXCLUDE_CHANNELS:-}" ]; then
-      ENV_VARS="${ENV_VARS},EXCLUDE_CHANNELS=${EXCLUDE_CHANNELS}"
-    fi
-
-    if [ -n "${INCLUDE_DIRECT_MESSAGES:-}" ]; then
-      ENV_VARS="${ENV_VARS},INCLUDE_DIRECT_MESSAGES=${INCLUDE_DIRECT_MESSAGES}"
-    fi
-
-    if [ -n "${INCLUDE_GROUP_MESSAGES:-}" ]; then
-      ENV_VARS="${ENV_VARS},INCLUDE_GROUP_MESSAGES=${INCLUDE_GROUP_MESSAGES}"
-    fi
-
-    gcloud run deploy "$SERVICE_NAME" \
-      --image "$IMAGE_URI" \
-      --region "$REGION" \
-      --platform managed \
-      --allow-unauthenticated \
-      --port 8080 \
-      --memory 512Mi \
-      --cpu 1 \
-      --min-instances 0 \
-      --max-instances 10 \
-      --timeout 3600 \
-      --no-cpu-throttling \
-      --set-env-vars "$ENV_VARS"
+  if gcloud secrets describe "ANTHROPIC_API_KEY" --project="$PROJECT_ID" &>/dev/null; then
+    SECRETS="${SECRETS},ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest"
   fi
+
+  if gcloud secrets describe "OPENAI_API_KEY" --project="$PROJECT_ID" &>/dev/null; then
+    SECRETS="${SECRETS},OPENAI_API_KEY=OPENAI_API_KEY:latest"
+  fi
+
+  # Non-sensitive config as plain env vars
+  local ENV_VARS=""
+  if [ -n "${TARGET_YEAR:-}" ]; then
+    ENV_VARS="${ENV_VARS}TARGET_YEAR=${TARGET_YEAR},"
+  fi
+  if [ -n "${LOCALE:-}" ]; then
+    ENV_VARS="${ENV_VARS}LOCALE=${LOCALE},"
+  fi
+  if [ -n "${INCLUDE_PRIVATE_CHANNELS:-}" ]; then
+    ENV_VARS="${ENV_VARS}INCLUDE_PRIVATE_CHANNELS=${INCLUDE_PRIVATE_CHANNELS},"
+  fi
+  if [ -n "${AI_MODEL:-}" ]; then
+    ENV_VARS="${ENV_VARS}AI_MODEL=${AI_MODEL},"
+  fi
+  if [ -n "${AI_MAX_TOKENS:-}" ]; then
+    ENV_VARS="${ENV_VARS}AI_MAX_TOKENS=${AI_MAX_TOKENS},"
+  fi
+  if [ -n "${INCLUDE_CHANNELS:-}" ]; then
+    ENV_VARS="${ENV_VARS}INCLUDE_CHANNELS=${INCLUDE_CHANNELS},"
+  fi
+  if [ -n "${EXCLUDE_CHANNELS:-}" ]; then
+    ENV_VARS="${ENV_VARS}EXCLUDE_CHANNELS=${EXCLUDE_CHANNELS},"
+  fi
+  if [ -n "${INCLUDE_DIRECT_MESSAGES:-}" ]; then
+    ENV_VARS="${ENV_VARS}INCLUDE_DIRECT_MESSAGES=${INCLUDE_DIRECT_MESSAGES},"
+  fi
+  if [ -n "${INCLUDE_GROUP_MESSAGES:-}" ]; then
+    ENV_VARS="${ENV_VARS}INCLUDE_GROUP_MESSAGES=${INCLUDE_GROUP_MESSAGES},"
+  fi
+  if [ -n "${PIPELINE_IDS:-}" ]; then
+    ENV_VARS="${ENV_VARS}PIPELINE_IDS=${PIPELINE_IDS},"
+  fi
+  # Strip trailing comma
+  ENV_VARS="${ENV_VARS%,}"
+
+  local DEPLOY_CMD=(
+    gcloud run deploy "$SERVICE_NAME"
+    --image "$IMAGE_URI"
+    --region "$REGION"
+    --platform managed
+    --allow-unauthenticated
+    --port 8080
+    --memory 512Mi
+    --cpu 1
+    --min-instances 0
+    --max-instances 10
+    --timeout 3600
+    --no-cpu-throttling
+    --set-secrets "$SECRETS"
+  )
+
+  if [ -n "$ENV_VARS" ]; then
+    DEPLOY_CMD+=(--set-env-vars "$ENV_VARS")
+  fi
+
+  "${DEPLOY_CMD[@]}"
 }
 
 # Get service URL
