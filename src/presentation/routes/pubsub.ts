@@ -650,7 +650,8 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
               input: combinedText,
             });
 
-            const header = formatGroupHeader(stage.unit, group.date, locale);
+            const years = job.years && job.years.length > 0 ? job.years : [job.year];
+            const header = formatGroupHeader(stage.unit, group.date, locale, years);
             await slackRepository.postToSelfDM({
               channelId: job.channelId,
               text: header ? `${header}\n\n${generated.content}` : generated.content,
@@ -800,7 +801,7 @@ function getMonthName(month: number, locale: Locale): string {
  * Format a section header for a pipeline stage group post.
  * Returns an empty string for stages that don't need a header (e.g. all_years final report).
  */
-function formatGroupHeader(unit: StageUnit, date: Date, locale: Locale): string {
+function formatGroupHeader(unit: StageUnit, date: Date, locale: Locale, years?: number[]): string {
   const isJa = locale === 'ja_JP';
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
@@ -817,9 +818,14 @@ function formatGroupHeader(unit: StageUnit, date: Date, locale: Locale): string 
       const weekLabel = date.toLocaleDateString(isJa ? 'ja-JP' : 'en-US', { month: 'short', day: 'numeric' });
       return isJa ? `📅 *週次: ${weekLabel}〜*` : `📅 *Week of ${weekLabel}*`;
     }
-    case 'all_years':
-      // Final cross-year report — no prefix header needed; the AI output is self-contained
-      return '';
+    case 'all_years': {
+      if (!years || years.length === 0) return '';
+      const sorted = [...years].sort((a, b) => a - b);
+      const rangeLabel = sorted.length === 1
+        ? `${sorted[0]}年`
+        : `${sorted[0]}年〜${sorted[sorted.length - 1]}年`;
+      return isJa ? `📋 *${rangeLabel} 年次比較レポート*` : `📋 *Year-over-Year Report: ${sorted.join(', ')}*`;
+    }
     default:
       return '';
   }
