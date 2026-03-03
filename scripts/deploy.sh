@@ -127,45 +127,48 @@ deploy_cloud_run() {
     SECRETS="${SECRETS},OPENAI_API_KEY=OPENAI_API_KEY:latest"
   fi
 
-  # Non-sensitive config as plain env vars
+  # Non-sensitive config as plain env vars.
+  # Use ';' as separator (not ',') so that values containing commas
+  # (e.g. CULTURE_ANALYSIS_CHANNEL_IDS=id1,id2) are passed correctly.
+  # gcloud supports custom delimiters via the "^DELIM^" prefix syntax.
   local ENV_VARS=""
   if [ -n "${TARGET_YEAR:-}" ]; then
-    ENV_VARS="${ENV_VARS}TARGET_YEAR=${TARGET_YEAR},"
+    ENV_VARS="${ENV_VARS}TARGET_YEAR=${TARGET_YEAR};"
   fi
   if [ -n "${LOCALE:-}" ]; then
-    ENV_VARS="${ENV_VARS}LOCALE=${LOCALE},"
+    ENV_VARS="${ENV_VARS}LOCALE=${LOCALE};"
   fi
   if [ -n "${INCLUDE_PRIVATE_CHANNELS:-}" ]; then
-    ENV_VARS="${ENV_VARS}INCLUDE_PRIVATE_CHANNELS=${INCLUDE_PRIVATE_CHANNELS},"
+    ENV_VARS="${ENV_VARS}INCLUDE_PRIVATE_CHANNELS=${INCLUDE_PRIVATE_CHANNELS};"
   fi
   if [ -n "${AI_MODEL:-}" ]; then
-    ENV_VARS="${ENV_VARS}AI_MODEL=${AI_MODEL},"
+    ENV_VARS="${ENV_VARS}AI_MODEL=${AI_MODEL};"
   fi
   if [ -n "${AI_MAX_TOKENS:-}" ]; then
-    ENV_VARS="${ENV_VARS}AI_MAX_TOKENS=${AI_MAX_TOKENS},"
+    ENV_VARS="${ENV_VARS}AI_MAX_TOKENS=${AI_MAX_TOKENS};"
   fi
   if [ -n "${INCLUDE_CHANNELS:-}" ]; then
-    ENV_VARS="${ENV_VARS}INCLUDE_CHANNELS=${INCLUDE_CHANNELS},"
+    ENV_VARS="${ENV_VARS}INCLUDE_CHANNELS=${INCLUDE_CHANNELS};"
   fi
   if [ -n "${EXCLUDE_CHANNELS:-}" ]; then
-    ENV_VARS="${ENV_VARS}EXCLUDE_CHANNELS=${EXCLUDE_CHANNELS},"
+    ENV_VARS="${ENV_VARS}EXCLUDE_CHANNELS=${EXCLUDE_CHANNELS};"
   fi
   if [ -n "${INCLUDE_DIRECT_MESSAGES:-}" ]; then
-    ENV_VARS="${ENV_VARS}INCLUDE_DIRECT_MESSAGES=${INCLUDE_DIRECT_MESSAGES},"
+    ENV_VARS="${ENV_VARS}INCLUDE_DIRECT_MESSAGES=${INCLUDE_DIRECT_MESSAGES};"
   fi
   if [ -n "${INCLUDE_GROUP_MESSAGES:-}" ]; then
-    ENV_VARS="${ENV_VARS}INCLUDE_GROUP_MESSAGES=${INCLUDE_GROUP_MESSAGES},"
+    ENV_VARS="${ENV_VARS}INCLUDE_GROUP_MESSAGES=${INCLUDE_GROUP_MESSAGES};"
   fi
   if [ -n "${PIPELINE_IDS:-}" ]; then
-    ENV_VARS="${ENV_VARS}PIPELINE_IDS=${PIPELINE_IDS},"
+    ENV_VARS="${ENV_VARS}PIPELINE_IDS=${PIPELINE_IDS};"
   fi
-  # Pipeline-specific channel ID overrides (e.g. CULTURE_ANALYSIS_CHANNEL_IDS)
-  # Naming convention: <PIPELINE_ID_UPPER_SNAKE>_CHANNEL_IDS
+  # Pipeline-specific channel ID overrides (e.g. CULTURE_ANALYSIS_CHANNEL_IDS=id1,id2)
+  # Values may contain commas; the '^;^' prefix below handles this correctly.
   if [ -n "${CULTURE_ANALYSIS_CHANNEL_IDS:-}" ]; then
-    ENV_VARS="${ENV_VARS}CULTURE_ANALYSIS_CHANNEL_IDS=${CULTURE_ANALYSIS_CHANNEL_IDS},"
+    ENV_VARS="${ENV_VARS}CULTURE_ANALYSIS_CHANNEL_IDS=${CULTURE_ANALYSIS_CHANNEL_IDS};"
   fi
-  # Strip trailing comma
-  ENV_VARS="${ENV_VARS%,}"
+  # Strip trailing semicolon
+  ENV_VARS="${ENV_VARS%;}"
 
   local DEPLOY_CMD=(
     gcloud run deploy "$SERVICE_NAME"
@@ -184,7 +187,9 @@ deploy_cloud_run() {
   )
 
   if [ -n "$ENV_VARS" ]; then
-    DEPLOY_CMD+=(--set-env-vars "$ENV_VARS")
+    # Prefix with '^;^' to tell gcloud to use ';' as the key=value separator,
+    # allowing values that contain commas (e.g. CULTURE_ANALYSIS_CHANNEL_IDS=id1,id2).
+    DEPLOY_CMD+=(--set-env-vars "^;^${ENV_VARS}")
   fi
 
   "${DEPLOY_CMD[@]}"
