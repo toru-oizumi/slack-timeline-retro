@@ -190,6 +190,29 @@ export class JobRepository {
   }
 
   /**
+   * Atomically transition job status from 'processing' to 'posting'.
+   * Uses a Firestore transaction so only the first caller succeeds — subsequent
+   * callers (Pub/Sub retries or race-condition duplicates) get false and should skip.
+   *
+   * @returns true if this caller acquired the posting lock, false if already taken.
+   */
+  async tryTransitionToPosting(jobId: string): Promise<boolean> {
+    const jobRef = this.db.collection(this.jobsCollection).doc(jobId);
+
+    return this.db.runTransaction(async (transaction) => {
+      const jobDoc = await transaction.get(jobRef);
+      const status = jobDoc.data()?.status as JobStatus | undefined;
+
+      if (status !== 'processing') {
+        return false;
+      }
+
+      transaction.update(jobRef, { status: 'posting', updatedAt: Timestamp.now() });
+      return true;
+    });
+  }
+
+  /**
    * Create a week task
    */
   async createWeekTask(params: CreateWeekTaskParams): Promise<WeekTaskDocument> {

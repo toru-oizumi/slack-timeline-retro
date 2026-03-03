@@ -464,14 +464,14 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
       return c.json({ error: 'Job not found' }, 404);
     }
 
-    // Idempotency check: skip if job already posted
-    if (job.status === 'completed' || job.status === 'error') {
-      console.log(`Job ${job.id} already ${job.status}, skipping posting (Pub/Sub retry)`);
+    // Atomically transition processing → posting.
+    // Only the first worker to call this succeeds; duplicates (Pub/Sub retries
+    // or race-condition workers) get false and skip immediately.
+    const acquired = await jobRepository.tryTransitionToPosting(job.id);
+    if (!acquired) {
+      console.log(`Job ${job.id} posting already in progress or done, skipping (race condition guard)`);
       return c.json({ success: true, skipped: true });
     }
-
-    // Update job status to posting
-    await jobRepository.updateJobStatus(job.id, 'posting');
 
     // Load configuration
     const envRecord = env as unknown as Record<string, string | undefined>;
