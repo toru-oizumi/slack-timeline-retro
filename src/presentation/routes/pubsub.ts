@@ -673,7 +673,7 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
           const currentResults: PipelineStageResult[] = [];
 
           for (const group of groups) {
-            const combinedText = group.items.map((r) => r.content).join('\n\n---\n\n');
+            const combinedText = buildCombinedText(stage.unit, group.items);
             const generated = await aiService.generateForStage({
               prompt: stage.prompt,
               input: combinedText,
@@ -861,6 +861,21 @@ function formatGroupHeader(unit: StageUnit, date: Date, locale: Locale, years?: 
     default:
       return '';
   }
+}
+
+/**
+ * Build combined input text for a pipeline aggregation stage.
+ * For all_years, each item is prefixed with its year so the AI can compare
+ * across years explicitly (e.g. "## 2023年\n\n[content]").
+ * For other units, items are joined with a plain separator.
+ */
+function buildCombinedText(unit: StageUnit, items: PipelineStageResult[]): string {
+  if (unit === 'all_years') {
+    return items
+      .map((r) => `## ${r.date.getFullYear()}年\n\n${r.content}`)
+      .join('\n\n---\n\n');
+  }
+  return items.map((r) => r.content).join('\n\n---\n\n');
 }
 
 /**
