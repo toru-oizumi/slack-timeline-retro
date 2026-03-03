@@ -219,6 +219,17 @@ slackRoutes.post('/slack/command', async (c) => {
     pipelineRepo.loadAll(pipelineIds);
     const matched = pipelineRepo.findByCommand(payload.command);
     activePipelineId = matched?.id;
+
+    // When pipelines are configured but this command isn't registered,
+    // return an explicit error instead of silently falling through to the
+    // legacy path — which would produce a confusing "Generating yearly summary..."
+    // response for unrelated pipeline commands.
+    if (!activePipelineId) {
+      return c.json({
+        response_type: 'ephemeral',
+        text: `❌ \`${payload.command}\` はパイプラインに登録されていません。\n登録済み: ${pipelineIds.join(', ')}\n\nPIPELINE_IDS 環境変数を確認してください。`,
+      });
+    }
   }
 
   // Check for user token (OAuth authorization)
