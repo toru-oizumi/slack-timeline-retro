@@ -138,22 +138,44 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
       }
     } else {
       // === Pipeline path ===
-      const pipelineRepo = new PipelineConfigRepository();
-      const pipeline = pipelineRepo.getById(job.pipelineId);
-      const baseStage = pipeline.stages[0];
-      const stageUnitMapper = new StageUnitMapper(dateService);
+      // Wrap in try/catch so config errors mark the job as failed rather than
+      // leaving it stuck in 'processing' with no tasks.
+      try {
+        const pipelineRepo = new PipelineConfigRepository();
+        const pipeline = pipelineRepo.getById(job.pipelineId);
+        const baseStage = pipeline.stages[0];
+        const stageUnitMapper = new StageUnitMapper(dateService);
 
-      // Support multi-year jobs (e.g. culture analysis with YoY comparison)
-      const pipelineYears =
-        job.years && job.years.length > 0 ? job.years : [job.year];
+        // Support multi-year jobs (e.g. culture analysis with YoY comparison)
+        const pipelineYears = job.years && job.years.length > 0 ? job.years : [job.year];
 
-      const weekTasks: WeekTaskMessage[] = [];
-      let taskNum = 1;
+        const weekTasks: WeekTaskMessage[] = [];
+        let taskNum = 1;
 
-      if (pipeline.slackInput.type === 'channel_threads') {
-        // channel_threads: one task per (channel × date range × year)
-        const channelIds = (pipeline.slackInput as ChannelThreadsInput).channelIds;
-        for (const channelId of channelIds) {
+        if (pipeline.slackInput.type === 'channel_threads') {
+          // channel_threads: one task per (channel × date range × year)
+          const channelIds = (pipeline.slackInput as ChannelThreadsInput).channelIds;
+          for (const channelId of channelIds) {
+            for (const year of pipelineYears) {
+              const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
+              for (const range of ranges) {
+                weekTasks.push({
+                  jobId: job.id,
+                  weekNumber: taskNum++,
+                  year,
+                  dateRange: {
+                    start: range.start.toISOString(),
+                    end: range.end.toISOString(),
+                  },
+                  pipelineId: job.pipelineId,
+                  stageId: baseStage.id,
+                  channelId,
+                });
+              }
+            }
+          }
+        } else {
+          // user_posts: one task per (date range × year)
           for (const year of pipelineYears) {
             const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
             for (const range of ranges) {
@@ -167,38 +189,24 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
                 },
                 pipelineId: job.pipelineId,
                 stageId: baseStage.id,
-                channelId,
               });
             }
           }
         }
-      } else {
-        // user_posts: one task per (date range × year)
-        for (const year of pipelineYears) {
-          const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
-          for (const range of ranges) {
-            weekTasks.push({
-              jobId: job.id,
-              weekNumber: taskNum++,
-              year,
-              dateRange: {
-                start: range.start.toISOString(),
-                end: range.end.toISOString(),
-              },
-              pipelineId: job.pipelineId,
-              stageId: baseStage.id,
-            });
-          }
-        }
-      }
 
-      // Update totalTasks to match actual task count computed from pipeline ranges
-      await jobRepository.updateTotalTasks(job.id, weekTasks.length);
-      await jobRepository.createWeekTasksBatch(weekTasks);
-      await pubsubClient.publishWeekTasksBatch(weekTasks);
-      console.log(
-        `Pipeline: Published ${weekTasks.length} tasks for job ${job.id} (pipeline: ${job.pipelineId}, years: ${pipelineYears.join(', ')})`
-      );
+        // Update totalTasks to match actual task count computed from pipeline ranges
+        await jobRepository.updateTotalTasks(job.id, weekTasks.length);
+        await jobRepository.createWeekTasksBatch(weekTasks);
+        await pubsubClient.publishWeekTasksBatch(weekTasks);
+        console.log(
+          `Pipeline: Published ${weekTasks.length} tasks for job ${job.id} (pipeline: ${job.pipelineId}, years: ${pipelineYears.join(', ')})`
+        );
+      } catch (pipelineErr) {
+        const errMsg = pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
+        console.error(`Pipeline setup error for job ${job.id}:`, errMsg);
+        await jobRepository.updateJobStatus(job.id, 'error', errMsg);
+        return c.json({ error: errMsg }, 500);
+      }
     }
 
     return c.json({ success: true, jobId: job.id });
@@ -348,8 +356,12 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
           );
         }
       } else {
-        // === user_posts path (existing) ===
-        const posts = await slackRepository.fetchUserPosts({ userId: job.userId, dateRange });
+        // === user_posts path ===
+        // 'caller' maps to the invoking user; otherwise use the configured user ID
+        const userPostsInput = pipeline.slackInput as { type: 'user_posts'; userId: string };
+        const effectiveUserId =
+          userPostsInput.userId === 'caller' ? job.userId : userPostsInput.userId;
+        const posts = await slackRepository.fetchUserPosts({ userId: effectiveUserId, dateRange });
 
         if (posts.length === 0) {
           content = '';
@@ -721,9 +733,18 @@ function getGroupKey(date: Date, unit: StageUnit): string {
       return `${year}-Q${quarter}`;
     case 'month':
       return `${year}-${String(month).padStart(2, '0')}`;
-    case 'week':
+    case 'week': {
+      // ISO 8601 week number: align to Thursday's year for cross-year weeks
+      const utc = new Date(Date.UTC(year, date.getMonth(), date.getDate()));
+      const dow = utc.getUTCDay() || 7; // 1=Mon … 7=Sun
+      utc.setUTCDate(utc.getUTCDate() + 4 - dow); // Thursday of the same week
+      const isoYear = utc.getUTCFullYear();
+      const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+      const weekNum = Math.ceil(((utc.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+      return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
+    }
     case 'day':
-      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return `${year}-${String(month).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
 }
 
