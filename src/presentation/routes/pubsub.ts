@@ -249,6 +249,15 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
       return c.json({ success: true, skipped: true });
     }
 
+    // Idempotency check: skip if this specific week task is already done
+    const existingWeekTask = await jobRepository.getWeekTask(message.jobId, message.weekNumber);
+    if (existingWeekTask?.status === 'completed' || existingWeekTask?.status === 'error') {
+      console.log(
+        `Week ${message.weekNumber} for job ${message.jobId} already ${existingWeekTask.status}, skipping (Pub/Sub retry)`
+      );
+      return c.json({ success: true, skipped: true });
+    }
+
     // Load configuration
     const envRecord = env as unknown as Record<string, string | undefined>;
     const config = loadConfig(envRecord);
