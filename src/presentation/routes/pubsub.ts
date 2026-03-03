@@ -650,9 +650,10 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
               input: combinedText,
             });
 
+            const header = formatGroupHeader(stage.unit, group.date, locale);
             await slackRepository.postToSelfDM({
               channelId: job.channelId,
-              text: generated.content,
+              text: header ? `${header}\n\n${generated.content}` : generated.content,
               threadTs: job.threadTs,
             });
             await sleep(1000);
@@ -793,6 +794,35 @@ function groupWeeksByMonth(
 function getMonthName(month: number, locale: Locale): string {
   const date = new Date(2025, month - 1, 1);
   return date.toLocaleDateString(locale === 'ja_JP' ? 'ja-JP' : 'en-US', { month: 'long' });
+}
+
+/**
+ * Format a section header for a pipeline stage group post.
+ * Returns an empty string for stages that don't need a header (e.g. all_years final report).
+ */
+function formatGroupHeader(unit: StageUnit, date: Date, locale: Locale): string {
+  const isJa = locale === 'ja_JP';
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const quarter = Math.ceil(month / 3);
+
+  switch (unit) {
+    case 'month':
+      return isJa ? `📅 *${year}年${month}月*` : `📅 *${date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' })}*`;
+    case 'quarter':
+      return isJa ? `📅 *${year}年 Q${quarter}*` : `📅 *${year} Q${quarter}*`;
+    case 'year':
+      return isJa ? `📊 *${year}年*` : `📊 *${year}*`;
+    case 'week': {
+      const weekLabel = date.toLocaleDateString(isJa ? 'ja-JP' : 'en-US', { month: 'short', day: 'numeric' });
+      return isJa ? `📅 *週次: ${weekLabel}〜*` : `📅 *Week of ${weekLabel}*`;
+    }
+    case 'all_years':
+      // Final cross-year report — no prefix header needed; the AI output is self-contained
+      return '';
+    default:
+      return '';
+  }
 }
 
 /**
