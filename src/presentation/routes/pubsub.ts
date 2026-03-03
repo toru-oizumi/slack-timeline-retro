@@ -673,7 +673,8 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
           const currentResults: PipelineStageResult[] = [];
 
           for (const group of groups) {
-            const combinedText = buildCombinedText(stage.unit, group.items);
+            const prevStageUnit = pipeline.stages[i - 1]?.unit;
+            const combinedText = buildCombinedText(stage.unit, group.items, prevStageUnit);
             const generated = await aiService.generateForStage({
               prompt: stage.prompt,
               input: combinedText,
@@ -869,12 +870,18 @@ function formatGroupHeader(unit: StageUnit, date: Date, locale: Locale, years?: 
 
 /**
  * Build combined input text for a pipeline aggregation stage.
- * For all_years, each item is prefixed with its year so the AI can compare
- * across years explicitly (e.g. "## 2023年\n\n[content]").
+ * For all_years where the previous stage was year-level, each item is prefixed
+ * with "## YYYY年" so the AI can compare years explicitly (e.g. culture yoy report).
+ * For all_years where the previous stage was month/week-level (e.g. self-review),
+ * items are joined without year labels to avoid misleading the AI into year comparison.
  * For other units, items are joined with a plain separator.
  */
-function buildCombinedText(unit: StageUnit, items: PipelineStageResult[]): string {
-  if (unit === 'all_years') {
+function buildCombinedText(
+  unit: StageUnit,
+  items: PipelineStageResult[],
+  prevStageUnit?: StageUnit
+): string {
+  if (unit === 'all_years' && prevStageUnit === 'year') {
     return items
       .map((r) => `## ${r.date.getFullYear()}年\n\n${r.content}`)
       .join('\n\n---\n\n');
