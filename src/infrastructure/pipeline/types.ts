@@ -94,6 +94,19 @@ export const OutputConfigSchema = z.object({
 export type OutputConfig = z.infer<typeof OutputConfigSchema>;
 
 /**
+ * Optional date period to restrict pipeline processing to a specific range of months.
+ * When set, overrides year-based task generation in the orchestrator.
+ * Format: "YYYY-MM" (e.g. "2025-09")
+ */
+export const PeriodConfigSchema = z.object({
+  /** First month inclusive (YYYY-MM) */
+  start: z.string().regex(/^\d{4}-\d{2}$/, 'Expected format: YYYY-MM'),
+  /** Last month inclusive (YYYY-MM) */
+  end: z.string().regex(/^\d{4}-\d{2}$/, 'Expected format: YYYY-MM'),
+});
+export type PeriodConfig = z.infer<typeof PeriodConfigSchema>;
+
+/**
  * Full pipeline configuration loaded from YAML
  */
 export const PipelineConfigSchema = z
@@ -101,6 +114,8 @@ export const PipelineConfigSchema = z
     id: z.string().min(1),
     command: z.string().startsWith('/'),
     description: z.string(),
+    /** Optional fixed date range. When set, overrides year arguments from the slash command. */
+    period: PeriodConfigSchema.optional(),
     slackInput: SlackInputSchema,
     stages: z.array(StageConfigSchema).min(1),
     output: OutputConfigSchema,

@@ -34,3 +34,7 @@ pnpm-debug.log*
 
 # Test coverage
 coverage/
+
+# Local pipeline configs (company-specific, not committed)
+config/pipelines/*.local.yaml
+config/pipelines/self-review.yaml

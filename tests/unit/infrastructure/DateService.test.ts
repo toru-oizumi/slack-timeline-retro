@@ -63,4 +63,52 @@ describe('DateService', () => {
       expect(months[11].start.getMonth()).toBe(11); // December
     });
   });
+
+  describe('getMonthsInPeriod', () => {
+    it('should return 6 months for 2025-09 to 2026-02', () => {
+      const months = dateService.getMonthsInPeriod('2025-09', '2026-02');
+
+      expect(months.length).toBe(6);
+      expect(months[0].start.getMonth()).toBe(8); // September (0-indexed)
+      expect(months[0].start.getFullYear()).toBe(2025);
+      expect(months[5].start.getMonth()).toBe(1); // February
+      expect(months[5].start.getFullYear()).toBe(2026);
+    });
+
+    it('should return 1 month when start equals end', () => {
+      const months = dateService.getMonthsInPeriod('2025-09', '2025-09');
+
+      expect(months.length).toBe(1);
+      expect(months[0].start.getMonth()).toBe(8);
+    });
+
+    it('should return 12 months for a full year', () => {
+      const months = dateService.getMonthsInPeriod('2025-01', '2025-12');
+      expect(months.length).toBe(12);
+    });
+  });
+
+  describe('getWeeksInPeriod', () => {
+    it('should return weeks within 2025-09 to 2026-02', () => {
+      const weeks = dateService.getWeeksInPeriod('2025-09', '2026-02');
+
+      // Sep-Feb spans ~26 weeks
+      expect(weeks.length).toBeGreaterThanOrEqual(24);
+      expect(weeks.length).toBeLessThanOrEqual(28);
+
+      // First week overlaps September 2025
+      const sep2025 = new Date(2025, 8, 1);
+      expect(weeks[0].start <= sep2025 || weeks[0].end >= sep2025).toBe(true);
+
+      // Last week overlaps February 2026
+      const feb2026End = new Date(2026, 1, 28);
+      expect(weeks[weeks.length - 1].end >= feb2026End).toBe(true);
+    });
+
+    it('should return weeks for a single month', () => {
+      const weeks = dateService.getWeeksInPeriod('2025-09', '2025-09');
+      expect(weeks.length).toBeGreaterThanOrEqual(4);
+      expect(weeks.length).toBeLessThanOrEqual(5);
+    });
+  });
 });

@@ -157,44 +157,73 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
         const weekTasks: WeekTaskMessage[] = [];
         let taskNum = 1;
 
+        // Determine date ranges: use fixed period if configured, otherwise expand by year.
+        const getRanges = (year: number) =>
+          pipeline.period
+            ? [] // period mode: ranges computed once below, not per year
+            : stageUnitMapper.getRangesForYear(baseStage.unit, year);
+
+        const periodRanges = pipeline.period
+          ? stageUnitMapper.getRangesForPeriod(baseStage.unit, pipeline.period.start, pipeline.period.end)
+          : null;
+
         if (pipeline.slackInput.type === 'channel_threads') {
-          // channel_threads: one task per (channel × date range × year)
+          // channel_threads: one task per (channel × date range)
           const channelIds = (pipeline.slackInput as ChannelThreadsInput).channelIds;
           for (const channelId of channelIds) {
-            for (const year of pipelineYears) {
-              const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
-              for (const range of ranges) {
+            if (periodRanges) {
+              for (const range of periodRanges) {
                 weekTasks.push({
                   jobId: job.id,
                   weekNumber: taskNum++,
-                  year,
-                  dateRange: {
-                    start: range.start.toISOString(),
-                    end: range.end.toISOString(),
-                  },
+                  year: range.start.getFullYear(),
+                  dateRange: { start: range.start.toISOString(), end: range.end.toISOString() },
                   pipelineId: job.pipelineId,
                   stageId: baseStage.id,
                   channelId,
                 });
               }
+            } else {
+              for (const year of pipelineYears) {
+                for (const range of getRanges(year)) {
+                  weekTasks.push({
+                    jobId: job.id,
+                    weekNumber: taskNum++,
+                    year,
+                    dateRange: { start: range.start.toISOString(), end: range.end.toISOString() },
+                    pipelineId: job.pipelineId,
+                    stageId: baseStage.id,
+                    channelId,
+                  });
+                }
+              }
             }
           }
         } else {
-          // user_posts: one task per (date range × year)
-          for (const year of pipelineYears) {
-            const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
-            for (const range of ranges) {
+          // user_posts: one task per date range
+          if (periodRanges) {
+            for (const range of periodRanges) {
               weekTasks.push({
                 jobId: job.id,
                 weekNumber: taskNum++,
-                year,
-                dateRange: {
-                  start: range.start.toISOString(),
-                  end: range.end.toISOString(),
-                },
+                year: range.start.getFullYear(),
+                dateRange: { start: range.start.toISOString(), end: range.end.toISOString() },
                 pipelineId: job.pipelineId,
                 stageId: baseStage.id,
               });
+            }
+          } else {
+            for (const year of pipelineYears) {
+              for (const range of getRanges(year)) {
+                weekTasks.push({
+                  jobId: job.id,
+                  weekNumber: taskNum++,
+                  year,
+                  dateRange: { start: range.start.toISOString(), end: range.end.toISOString() },
+                  pipelineId: job.pipelineId,
+                  stageId: baseStage.id,
+                });
+              }
             }
           }
         }

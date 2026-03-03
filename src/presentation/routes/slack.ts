@@ -6,6 +6,7 @@ import {
   type ChannelThreadsInput,
   type PipelineConfig,
   PipelineConfigRepository,
+  StageUnitMapper,
 } from '@/infrastructure/pipeline';
 import { PubSubClient } from '@/infrastructure/pubsub';
 import { SlackRepository } from '@/infrastructure/slack';
@@ -91,30 +92,47 @@ function parsePipelineYears(text: string): number[] {
 }
 
 /**
- * Calculate total week tasks for a pipeline job spanning one or more years.
- * For channel_threads: channelIds.length × total dateRanges across all years
- * For user_posts: total dateRanges across all years
+ * Extract the unique calendar years covered by a period string range.
+ * e.g. { start: "2025-09", end: "2026-02" } → [2025, 2026]
+ */
+function extractYearsFromPeriod(period: { start: string; end: string }): number[] {
+  const startYear = Number.parseInt(period.start.split('-')[0], 10);
+  const endYear = Number.parseInt(period.end.split('-')[0], 10);
+  const years: number[] = [];
+  for (let y = startYear; y <= endYear; y++) years.push(y);
+  return years;
+}
+
+/**
+ * Calculate total week tasks for a pipeline job.
+ * When the pipeline has a fixed `period`, uses that period instead of year-based ranges.
  */
 function calculatePipelineTotalTasks(pipeline: PipelineConfig, years: number[]): number {
   const dateService = new DateService();
   const baseStage = pipeline.stages[0];
 
   let dateRangeCount: number;
-  switch (baseStage.unit) {
-    case 'week':
-      dateRangeCount = years.reduce(
-        (sum, year) => sum + dateService.getAllWeeksInYear(year).length,
-        0
-      );
-      break;
-    case 'month':
-      dateRangeCount = 12 * years.length;
-      break;
-    case 'year':
-      dateRangeCount = years.length;
-      break;
-    default:
-      throw new Error(`Unsupported baseStage.unit: ${String(baseStage.unit)}`);
+
+  if (pipeline.period) {
+    const mapper = new StageUnitMapper(dateService);
+    dateRangeCount = mapper.getRangesForPeriod(baseStage.unit, pipeline.period.start, pipeline.period.end).length;
+  } else {
+    switch (baseStage.unit) {
+      case 'week':
+        dateRangeCount = years.reduce(
+          (sum, year) => sum + dateService.getAllWeeksInYear(year).length,
+          0
+        );
+        break;
+      case 'month':
+        dateRangeCount = 12 * years.length;
+        break;
+      case 'year':
+        dateRangeCount = years.length;
+        break;
+      default:
+        throw new Error(`Unsupported baseStage.unit: ${String(baseStage.unit)}`);
+    }
   }
 
   if (pipeline.slackInput.type === 'channel_threads') {
@@ -238,7 +256,11 @@ slackRoutes.post('/slack/command', async (c) => {
   if (activePipelineId && pipelineRepo) {
     // === Pipeline path ===
     const pipeline = pipelineRepo.getById(activePipelineId);
-    const years = parsePipelineYears(payload.text);
+    // If the pipeline defines a fixed period, use years from that period;
+    // otherwise fall back to parsing years from the command text.
+    const years = pipeline.period
+      ? extractYearsFromPeriod(pipeline.period)
+      : parsePipelineYears(payload.text);
 
     // Post start message
     const startMessage = `🔄 *Running ${pipeline.description || payload.command}...*\n_Analyzing: ${years.join(', ')}_`;
