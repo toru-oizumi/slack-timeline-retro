@@ -15,15 +15,16 @@ stages:
     unit: week
     prompt:
       system: |
-        You extract organizational signals from Slack threads.
-        Focus on factual observations, not cultural interpretation.
+        あなたはSlackスレッドから組織のシグナルを抽出する専門家です。
+        文化的な解釈ではなく、事実に基づいた観察を記述してください。
+        出力は必ず日本語で行ってください。
       user: |
-        From the following Slack threads, extract:
-        - Main topics discussed
-        - Communication patterns (how people interact with each other)
-        - Decision points or action items mentioned
+        以下のSlackスレッドから、次の情報を抽出してください：
+        - 主に議論されたトピック
+        - コミュニケーションパターン（メンバー同士の関わり方）
+        - 意思決定のポイントやアクションアイテム
 
-        Threads:
+        スレッド：
         {{input}}
 
   # Stage 2: Compress weekly digests into monthly summaries
@@ -32,12 +33,13 @@ stages:
     inputSource: weekly_digest
     prompt:
       system: |
-        You consolidate weekly thread digests into concise monthly summaries.
+        あなたは週次ダイジェストを簡潔な月次サマリーに集約する専門家です。
+        出力は必ず日本語で行ってください。
       user: |
-        Consolidate these weekly digests into a monthly summary.
-        Preserve key signals about communication style, topics, and patterns.
+        以下の週次ダイジェストを月次サマリーとして集約してください。
+        コミュニケーションスタイル、主なトピック、パターンに関する重要なシグナルを保持してください。
 
-        Weekly digests:
+        週次ダイジェスト：
         {{input}}
 
   # Stage 3: Analyze org culture from 12 months of data
@@ -46,27 +48,28 @@ stages:
     inputSource: monthly_digest
     prompt:
       system: |
-        You are an organizational culture expert who analyzes communication patterns.
-        Use the monthly data to characterize the org's culture for this year.
+        あなたはコミュニケーションパターンを分析する組織文化の専門家です。
+        月次データをもとに、その年の組織文化を特徴づけてください。
+        出力は必ず日本語で行ってください。
       user: |
-        Based on 12 months of Slack communication data, write a culture profile covering:
+        12ヶ月分のSlackコミュニケーションデータをもとに、以下の項目を含むカルチャープロファイルを作成してください：
 
-        ## Communication Style
-        Describe how people communicate (direct/indirect, formal/casual, async/sync preference).
+        ## コミュニケーションスタイル
+        メンバーがどのようにコミュニケーションを取るか（直接的/間接的、フォーマル/カジュアル、非同期/同期の傾向）を説明してください。
 
-        ## Decision-Making Patterns
-        How are decisions made and communicated? Who participates?
+        ## 意思決定パターン
+        意思決定はどのように行われ、伝達されるか？誰が参加するか？
 
-        ## Collaboration Behaviors
-        How do people work together? What does teamwork look like?
+        ## コラボレーションの特徴
+        メンバーはどのように協働するか？チームワークはどのような様子か？
 
-        ## Values in Practice
-        What values are visible through behavior (not stated values)?
+        ## 実際の行動に表れる価値観
+        表明された価値観ではなく、行動から見えてくる価値観は何か？
 
-        ## Key Themes
-        What topics dominated the year?
+        ## 主要テーマ
+        その年を通じて支配的だったトピックは何か？
 
-        Monthly data:
+        月次データ：
         {{input}}
 
   # Stage 4: Aggregate yearly_culture results across all years in the job.
@@ -77,27 +80,28 @@ stages:
     inputSource: yearly_culture
     prompt:
       system: |
-        You are an organizational culture change expert.
-        Identify meaningful shifts in culture across years.
+        あなたは組織文化の変化を専門とする専門家です。
+        複数年にわたる文化の変化を特定してください。
+        出力は必ず日本語で行ってください。
       user: |
-        Compare org culture across the following years and write a year-over-year analysis:
+        以下の年次カルチャープロファイルをもとに、年次比較分析を作成してください：
 
-        ## Cultural Trajectory
-        How has the overall culture evolved?
+        ## 文化の軌跡
+        組織文化全体はどのように変化してきたか？
 
-        ## Key Shifts
-        What changed most significantly and when?
+        ## 主要な変化
+        最も大きく変化した点は何か、またそれはいつ起きたか？
 
-        ## Stable Elements
-        What aspects of culture have remained consistent?
+        ## 変わらない要素
+        一貫して維持されている文化的側面は何か？
 
-        ## Turning Points
-        Were there specific moments or periods that drove cultural change?
+        ## 転換点
+        文化的変化を促した特定の出来事や時期はあったか？
 
-        ## Outlook
-        Based on the trajectory, what cultural patterns are likely to continue?
+        ## 今後の展望
+        これまでの軌跡から、どのような文化的パターンが今後も続くと考えられるか？
 
-        Year-by-year culture profiles:
+        年次カルチャープロファイル：
         {{input}}
 
 output:
