@@ -821,9 +821,12 @@ function formatGroupHeader(unit: StageUnit, date: Date, locale: Locale, years?: 
     case 'all_years': {
       if (!years || years.length === 0) return '';
       const sorted = [...years].sort((a, b) => a - b);
+      const isConsecutive = sorted.every((y, i) => i === 0 || y === sorted[i - 1] + 1);
       const rangeLabel = sorted.length === 1
         ? `${sorted[0]}年`
-        : `${sorted[0]}年〜${sorted[sorted.length - 1]}年`;
+        : isConsecutive
+          ? `${sorted[0]}年〜${sorted[sorted.length - 1]}年`
+          : sorted.map((y) => `${y}年`).join('・');
       return isJa ? `📋 *${rangeLabel} 年次比較レポート*` : `📋 *Year-over-Year Report: ${sorted.join(', ')}*`;
     }
     default:
