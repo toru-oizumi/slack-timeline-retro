@@ -1,5 +1,10 @@
 import { WebClient } from '@slack/web-api';
-import type { ISlackRepository, SlackChannelInfo, SlackUserInfo, ThreadSamplingConfig } from '@/domain';
+import type {
+  ISlackRepository,
+  SlackChannelInfo,
+  SlackUserInfo,
+  ThreadSamplingConfig,
+} from '@/domain';
 import {
   type DateRange,
   Post,
@@ -318,6 +323,16 @@ export class SlackRepository implements ISlackRepository {
   }
 
   /**
+   * Update an existing message in place (e.g. for progress updates)
+   */
+  async updateMessage(channelId: string, ts: string, text: string): Promise<void> {
+    const response = await this.botClient.chat.update({ channel: channelId, ts, text });
+    if (!response.ok) {
+      throw new SlackAPIError('chat.update failed', response.error);
+    }
+  }
+
+  /**
    * Post a start message to create a new thread
    * Returns the message ts which can be used as thread_ts for subsequent replies
    */
@@ -509,8 +524,9 @@ export class SlackRepository implements ISlackRepository {
         const replyCount = (msg as { reply_count?: number }).reply_count ?? 0;
         if (replyCount === 0) continue;
 
-        const reactionCount = ((msg as { reactions?: Array<{ count: number }> }).reactions ?? [])
-          .reduce((sum, r) => sum + r.count, 0);
+        const reactionCount = (
+          (msg as { reactions?: Array<{ count: number }> }).reactions ?? []
+        ).reduce((sum, r) => sum + r.count, 0);
 
         parents.push({ ts: msg.ts, text: msg.text, replyCount, reactionCount });
       }

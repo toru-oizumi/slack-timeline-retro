@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
-import { DateRange, SlackChannel, Summary } from '@/domain';
+import { DateRange, Summary } from '@/domain';
 import { AIService } from '@/infrastructure/ai';
 import { defaultAIConfig, type Locale } from '@/infrastructure/config';
 import { DateService } from '@/infrastructure/date';
 import { JobRepository } from '@/infrastructure/firestore';
 import {
-  PipelineConfigRepository,
-  StageUnitMapper,
-  type StageUnit,
   type ChannelThreadsInput,
+  PipelineConfigRepository,
+  type StageUnit,
+  StageUnitMapper,
 } from '@/infrastructure/pipeline';
 import {
   decodePubSubMessage,
@@ -21,7 +21,6 @@ import {
 import { SlackRepository } from '@/infrastructure/slack';
 import { loadConfig, loadWorkspaceConfig } from '@/shared/config';
 import type { Env } from '@/shared/types';
-import { GenerateWeeklySummary } from '@/usecases';
 
 const pubsubRoutes = new Hono<{ Bindings: Env }>();
 
@@ -59,6 +58,12 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
     if (!job) {
       console.error(`Job not found: ${message.jobId}`);
       return c.json({ error: 'Job not found' }, 404);
+    }
+
+    // Idempotency check: only orchestrate jobs that are still pending
+    if (job.status !== 'pending') {
+      console.log(`Job ${job.id} is already ${job.status}, skipping orchestration (Pub/Sub retry)`);
+      return c.json({ success: true, skipped: true });
     }
 
     // Update job status to processing
@@ -152,44 +157,73 @@ pubsubRoutes.post('/pubsub/orchestrate', async (c) => {
         const weekTasks: WeekTaskMessage[] = [];
         let taskNum = 1;
 
+        // Determine date ranges: use fixed period if configured, otherwise expand by year.
+        const getRanges = (year: number) =>
+          pipeline.period
+            ? [] // period mode: ranges computed once below, not per year
+            : stageUnitMapper.getRangesForYear(baseStage.unit, year);
+
+        const periodRanges = pipeline.period
+          ? stageUnitMapper.getRangesForPeriod(baseStage.unit, pipeline.period.start, pipeline.period.end)
+          : null;
+
         if (pipeline.slackInput.type === 'channel_threads') {
-          // channel_threads: one task per (channel × date range × year)
+          // channel_threads: one task per (channel × date range)
           const channelIds = (pipeline.slackInput as ChannelThreadsInput).channelIds;
           for (const channelId of channelIds) {
-            for (const year of pipelineYears) {
-              const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
-              for (const range of ranges) {
+            if (periodRanges) {
+              for (const range of periodRanges) {
                 weekTasks.push({
                   jobId: job.id,
                   weekNumber: taskNum++,
-                  year,
-                  dateRange: {
-                    start: range.start.toISOString(),
-                    end: range.end.toISOString(),
-                  },
+                  year: range.start.getFullYear(),
+                  dateRange: { start: range.start.toISOString(), end: range.end.toISOString() },
                   pipelineId: job.pipelineId,
                   stageId: baseStage.id,
                   channelId,
                 });
               }
+            } else {
+              for (const year of pipelineYears) {
+                for (const range of getRanges(year)) {
+                  weekTasks.push({
+                    jobId: job.id,
+                    weekNumber: taskNum++,
+                    year,
+                    dateRange: { start: range.start.toISOString(), end: range.end.toISOString() },
+                    pipelineId: job.pipelineId,
+                    stageId: baseStage.id,
+                    channelId,
+                  });
+                }
+              }
             }
           }
         } else {
-          // user_posts: one task per (date range × year)
-          for (const year of pipelineYears) {
-            const ranges = stageUnitMapper.getRangesForYear(baseStage.unit, year);
-            for (const range of ranges) {
+          // user_posts: one task per date range
+          if (periodRanges) {
+            for (const range of periodRanges) {
               weekTasks.push({
                 jobId: job.id,
                 weekNumber: taskNum++,
-                year,
-                dateRange: {
-                  start: range.start.toISOString(),
-                  end: range.end.toISOString(),
-                },
+                year: range.start.getFullYear(),
+                dateRange: { start: range.start.toISOString(), end: range.end.toISOString() },
                 pipelineId: job.pipelineId,
                 stageId: baseStage.id,
               });
+            }
+          } else {
+            for (const year of pipelineYears) {
+              for (const range of getRanges(year)) {
+                weekTasks.push({
+                  jobId: job.id,
+                  weekNumber: taskNum++,
+                  year,
+                  dateRange: { start: range.start.toISOString(), end: range.end.toISOString() },
+                  pipelineId: job.pipelineId,
+                  stageId: baseStage.id,
+                });
+              }
             }
           }
         }
@@ -249,6 +283,15 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
       return c.json({ success: true, skipped: true });
     }
 
+    // Idempotency check: skip if this specific week task is already done
+    const existingWeekTask = await jobRepository.getWeekTask(message.jobId, message.weekNumber);
+    if (existingWeekTask?.status === 'completed' || existingWeekTask?.status === 'error') {
+      console.log(
+        `Week ${message.weekNumber} for job ${message.jobId} already ${existingWeekTask.status}, skipping (Pub/Sub retry)`
+      );
+      return c.json({ success: true, skipped: true });
+    }
+
     // Load configuration
     const envRecord = env as unknown as Record<string, string | undefined>;
     const config = loadConfig(envRecord);
@@ -291,40 +334,30 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
 
     if (!message.pipelineId) {
       // === Legacy path ===
-      // Create channel for posting (but we won't post individual weeks)
-      const channel = SlackChannel.create(job.channelId, job.threadTs);
-
-      // Parse date range
+      // Fetch and generate only — posting is handled by the posting worker.
+      // Do NOT use GenerateWeeklySummary here: that use case also posts to Slack,
+      // which would cause duplicate messages alongside the posting worker.
       const startDate = new Date(message.dateRange.start);
+      const dateRange = DateRange.forWeek(startDate);
 
-      // Generate weekly summary
-      const usecase = new GenerateWeeklySummary(slackRepository, aiService);
-      const result = await usecase.execute({
+      const posts = await slackRepository.fetchUserPosts({
         userId: job.userId,
-        targetDate: startDate,
-        year: job.year,
-        channel, // Not used for posting in batch mode
+        dateRange,
       });
 
-      if (result.ok) {
-        content = result.value.content;
-        console.log(`Week ${message.weekNumber} summary generated for job ${job.id}`);
+      if (posts.length === 0) {
+        content = ''; // Empty content for weeks with no posts
+        console.log(`Week ${message.weekNumber}: No posts found for job ${job.id}`);
       } else {
-        // For "no posts found", treat as empty content rather than error
-        if (result.error.message.includes('No posts found')) {
-          content = ''; // Empty content for weeks with no posts
-          console.log(`Week ${message.weekNumber}: No posts found for job ${job.id}`);
-        } else {
-          error = result.error.message;
-          console.error(`Week ${message.weekNumber} error: ${error}`);
-        }
+        const generated = await aiService.generateWeeklySummary(posts);
+        content = generated.content;
+        console.log(`Week ${message.weekNumber} summary generated for job ${job.id}`);
       }
     } else {
       // === Pipeline path ===
       const pipelineRepo = new PipelineConfigRepository();
       const pipeline = pipelineRepo.getById(message.pipelineId);
-      const stage =
-        pipeline.stages.find((s) => s.id === message.stageId) ?? pipeline.stages[0];
+      const stage = pipeline.stages.find((s) => s.id === message.stageId) ?? pipeline.stages[0];
 
       const startDate = new Date(message.dateRange.start);
       const endDate = new Date(message.dateRange.end);
@@ -388,6 +421,23 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
     // Increment completed tasks counter
     const completedCount = await jobRepository.incrementCompletedTasks(job.id);
 
+    // Update start message at each 10% milestone
+    const milestone = Math.ceil(job.totalTasks / 10);
+    const isAtMilestone =
+      milestone > 0 &&
+      Math.floor(completedCount / milestone) > Math.floor((completedCount - 1) / milestone);
+    if (isAtMilestone && completedCount < job.totalTasks) {
+      const pct = Math.round((completedCount / job.totalTasks) * 100);
+      const yearsLabel = job.years?.join(', ') ?? String(job.year);
+      const label = job.pipelineId ?? 'job';
+      const progressText = `🔄 *Running ${label}...* (${completedCount}/${job.totalTasks} ⏳ ${pct}%)\n_Analyzing: ${yearsLabel}_`;
+      try {
+        await slackRepository.updateMessage(job.channelId, job.threadTs, progressText);
+      } catch (err) {
+        console.error('Progress update failed:', err instanceof Error ? err.message : String(err));
+      }
+    }
+
     // Check if all tasks are complete
     if (completedCount >= job.totalTasks) {
       console.log(`All ${job.totalTasks} tasks complete for job ${job.id}, triggering posting`);
@@ -431,8 +481,14 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
       return c.json({ error: 'Job not found' }, 404);
     }
 
-    // Update job status to posting
-    await jobRepository.updateJobStatus(job.id, 'posting');
+    // Atomically transition processing → posting.
+    // Only the first worker to call this succeeds; duplicates (Pub/Sub retries
+    // or race-condition workers) get false and skip immediately.
+    const acquired = await jobRepository.tryTransitionToPosting(job.id);
+    if (!acquired) {
+      console.log(`Job ${job.id} posting already in progress or done, skipping (race condition guard)`);
+      return c.json({ success: true, skipped: true });
+    }
 
     // Load configuration
     const envRecord = env as unknown as Record<string, string | undefined>;
@@ -570,9 +626,7 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
           );
 
           // Filter out months with no posts
-          const validMonths = monthlyResults.filter(
-            (r): r is NonNullable<typeof r> => r !== null
-          );
+          const validMonths = monthlyResults.filter((r): r is NonNullable<typeof r> => r !== null);
 
           // Post monthly summaries to Slack sequentially (preserve order + rate limiting)
           const monthlySummaries: Summary[] = [];
@@ -636,15 +690,22 @@ pubsubRoutes.post('/pubsub/posting', async (c) => {
           const currentResults: PipelineStageResult[] = [];
 
           for (const group of groups) {
-            const combinedText = group.items.map((r) => r.content).join('\n\n---\n\n');
+            const prevStageUnit = pipeline.stages[i - 1]?.unit;
+            const combinedText = buildCombinedText(stage.unit, group.items, prevStageUnit);
             const generated = await aiService.generateForStage({
               prompt: stage.prompt,
               input: combinedText,
             });
 
+            const years = job.years && job.years.length > 0 ? job.years : [job.year];
+            // Use stage's explicit header override if defined; otherwise auto-generate.
+            const header =
+              stage.header !== undefined
+                ? stage.header
+                : formatGroupHeader(stage.unit, group.date, locale, years);
             await slackRepository.postToSelfDM({
               channelId: job.channelId,
-              text: generated.content,
+              text: header ? `${header}\n\n${generated.content}` : generated.content,
               threadTs: job.threadTs,
             });
             await sleep(1000);
@@ -722,7 +783,6 @@ function getGroupKey(date: Date, unit: StageUnit): string {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const quarter = Math.ceil(month / 3);
-  const day = date.getDate();
 
   switch (unit) {
     case 'all_years':
@@ -786,6 +846,64 @@ function groupWeeksByMonth(
 function getMonthName(month: number, locale: Locale): string {
   const date = new Date(2025, month - 1, 1);
   return date.toLocaleDateString(locale === 'ja_JP' ? 'ja-JP' : 'en-US', { month: 'long' });
+}
+
+/**
+ * Format a section header for a pipeline stage group post.
+ * Returns an empty string for stages that don't need a header (e.g. all_years final report).
+ */
+function formatGroupHeader(unit: StageUnit, date: Date, locale: Locale, years?: number[]): string {
+  const isJa = locale === 'ja_JP';
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const quarter = Math.ceil(month / 3);
+
+  switch (unit) {
+    case 'month':
+      return isJa ? `📅 *${year}年${month}月*` : `📅 *${date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' })}*`;
+    case 'quarter':
+      return isJa ? `📅 *${year}年 Q${quarter}*` : `📅 *${year} Q${quarter}*`;
+    case 'year':
+      return isJa ? `📊 *${year}年*` : `📊 *${year}*`;
+    case 'week': {
+      const weekLabel = date.toLocaleDateString(isJa ? 'ja-JP' : 'en-US', { month: 'short', day: 'numeric' });
+      return isJa ? `📅 *週次: ${weekLabel}〜*` : `📅 *Week of ${weekLabel}*`;
+    }
+    case 'all_years': {
+      if (!years || years.length === 0) return '';
+      const sorted = [...years].sort((a, b) => a - b);
+      const isConsecutive = sorted.every((y, i) => i === 0 || y === sorted[i - 1] + 1);
+      const rangeLabel = sorted.length === 1
+        ? `${sorted[0]}年`
+        : isConsecutive
+          ? `${sorted[0]}年〜${sorted[sorted.length - 1]}年`
+          : sorted.map((y) => `${y}年`).join('・');
+      return isJa ? `📋 *${rangeLabel} 年次比較レポート*` : `📋 *Year-over-Year Report: ${sorted.join(', ')}*`;
+    }
+    default:
+      return '';
+  }
+}
+
+/**
+ * Build combined input text for a pipeline aggregation stage.
+ * For all_years where the previous stage was year-level, each item is prefixed
+ * with "## YYYY年" so the AI can compare years explicitly (e.g. culture yoy report).
+ * For all_years where the previous stage was month/week-level (e.g. self-review),
+ * items are joined without year labels to avoid misleading the AI into year comparison.
+ * For other units, items are joined with a plain separator.
+ */
+function buildCombinedText(
+  unit: StageUnit,
+  items: PipelineStageResult[],
+  prevStageUnit?: StageUnit
+): string {
+  if (unit === 'all_years' && prevStageUnit === 'year') {
+    return items
+      .map((r) => `## ${r.date.getFullYear()}年\n\n${r.content}`)
+      .join('\n\n---\n\n');
+  }
+  return items.map((r) => r.content).join('\n\n---\n\n');
 }
 
 /**

@@ -1,0 +1,22 @@
+id: no-channels
+command: /test-no-channels
+description: "Test pipeline with empty channelIds (requires env var)"
+
+slackInput:
+  type: channel_threads
+  channelIds: []
+  sampling:
+    strategy: top_engaged
+    maxThreadsPerWeek: 3
+
+stages:
+  - id: weekly_digest
+    unit: week
+    prompt:
+      system: "You summarize threads."
+      user: "Threads:\n{{input}}"
+
+output:
+  destination: self_dm
+  thread: false
+  broadcastFinal: true

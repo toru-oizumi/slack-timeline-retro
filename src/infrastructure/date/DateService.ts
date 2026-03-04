@@ -117,4 +117,66 @@ export class DateService {
 
     return months;
   }
+
+  /**
+   * Parse a "YYYY-MM" string into { year, month } (month is 1-indexed).
+   */
+  private static parseYearMonth(ym: string): { year: number; month: number } {
+    const [yearStr, monthStr] = ym.split('-');
+    return { year: Number(yearStr), month: Number(monthStr) };
+  }
+
+  /**
+   * Get all calendar months within the given inclusive period.
+   * @param start - First month, format "YYYY-MM"
+   * @param end   - Last month, format "YYYY-MM"
+   */
+  getMonthsInPeriod(start: string, end: string): DateRange[] {
+    const s = DateService.parseYearMonth(start);
+    const e = DateService.parseYearMonth(end);
+
+    const months: DateRange[] = [];
+    let year = s.year;
+    let month = s.month;
+
+    while (year < e.year || (year === e.year && month <= e.month)) {
+      const monthStart = new Date(year, month - 1, 1);
+      months.push(DateRange.create(monthStart, endOfMonth(monthStart)));
+
+      month++;
+      if (month > 12) {
+        month = 1;
+        year++;
+      }
+    }
+
+    return months;
+  }
+
+  /**
+   * Get all weeks that overlap with the given inclusive period.
+   * @param start - First month, format "YYYY-MM"
+   * @param end   - Last month, format "YYYY-MM"
+   */
+  getWeeksInPeriod(start: string, end: string): DateRange[] {
+    const s = DateService.parseYearMonth(start);
+    const e = DateService.parseYearMonth(end);
+
+    const periodStart = new Date(s.year, s.month - 1, 1);
+    const periodEnd = endOfMonth(new Date(e.year, e.month - 1, 1));
+
+    const weeks: DateRange[] = [];
+    let currentWeekStart = startOfWeek(periodStart, { weekStartsOn: 1 });
+
+    while (currentWeekStart <= periodEnd) {
+      const weekEnd = endOfWeek(currentWeekStart, { weekStartsOn: 1 });
+      // Include the week if it overlaps with the period
+      if (weekEnd >= periodStart) {
+        weeks.push(DateRange.create(currentWeekStart, weekEnd));
+      }
+      currentWeekStart = addWeeks(currentWeekStart, 1);
+    }
+
+    return weeks;
+  }
 }

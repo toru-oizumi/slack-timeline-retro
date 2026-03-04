@@ -3,9 +3,10 @@ import { Hono } from 'hono';
 import { DateService } from '@/infrastructure/date';
 import { JobRepository, TokenRepository } from '@/infrastructure/firestore';
 import {
-  PipelineConfigRepository,
   type ChannelThreadsInput,
   type PipelineConfig,
+  PipelineConfigRepository,
+  StageUnitMapper,
 } from '@/infrastructure/pipeline';
 import { PubSubClient } from '@/infrastructure/pubsub';
 import { SlackRepository } from '@/infrastructure/slack';
@@ -91,30 +92,47 @@ function parsePipelineYears(text: string): number[] {
 }
 
 /**
- * Calculate total week tasks for a pipeline job spanning one or more years.
- * For channel_threads: channelIds.length × total dateRanges across all years
- * For user_posts: total dateRanges across all years
+ * Extract the unique calendar years covered by a period string range.
+ * e.g. { start: "2025-09", end: "2026-02" } → [2025, 2026]
+ */
+function extractYearsFromPeriod(period: { start: string; end: string }): number[] {
+  const startYear = Number.parseInt(period.start.split('-')[0], 10);
+  const endYear = Number.parseInt(period.end.split('-')[0], 10);
+  const years: number[] = [];
+  for (let y = startYear; y <= endYear; y++) years.push(y);
+  return years;
+}
+
+/**
+ * Calculate total week tasks for a pipeline job.
+ * When the pipeline has a fixed `period`, uses that period instead of year-based ranges.
  */
 function calculatePipelineTotalTasks(pipeline: PipelineConfig, years: number[]): number {
   const dateService = new DateService();
   const baseStage = pipeline.stages[0];
 
   let dateRangeCount: number;
-  switch (baseStage.unit) {
-    case 'week':
-      dateRangeCount = years.reduce(
-        (sum, year) => sum + dateService.getAllWeeksInYear(year).length,
-        0
-      );
-      break;
-    case 'month':
-      dateRangeCount = 12 * years.length;
-      break;
-    case 'year':
-      dateRangeCount = years.length;
-      break;
-    default:
-      throw new Error(`Unsupported baseStage.unit: ${String(baseStage.unit)}`);
+
+  if (pipeline.period) {
+    const mapper = new StageUnitMapper(dateService);
+    dateRangeCount = mapper.getRangesForPeriod(baseStage.unit, pipeline.period.start, pipeline.period.end).length;
+  } else {
+    switch (baseStage.unit) {
+      case 'week':
+        dateRangeCount = years.reduce(
+          (sum, year) => sum + dateService.getAllWeeksInYear(year).length,
+          0
+        );
+        break;
+      case 'month':
+        dateRangeCount = 12 * years.length;
+        break;
+      case 'year':
+        dateRangeCount = years.length;
+        break;
+      default:
+        throw new Error(`Unsupported baseStage.unit: ${String(baseStage.unit)}`);
+    }
   }
 
   if (pipeline.slackInput.type === 'channel_threads') {
@@ -190,7 +208,9 @@ slackRoutes.post('/slack/command', async (c) => {
 
   // Check if this command is handled by a pipeline config
   const pipelineIds = env.PIPELINE_IDS
-    ? env.PIPELINE_IDS.split(',').map((s) => s.trim()).filter(Boolean)
+    ? env.PIPELINE_IDS.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
     : [];
   let activePipelineId: string | undefined;
   let pipelineRepo: PipelineConfigRepository | undefined;
@@ -199,6 +219,17 @@ slackRoutes.post('/slack/command', async (c) => {
     pipelineRepo.loadAll(pipelineIds);
     const matched = pipelineRepo.findByCommand(payload.command);
     activePipelineId = matched?.id;
+
+    // When pipelines are configured but this command isn't registered,
+    // return an explicit error instead of silently falling through to the
+    // legacy path — which would produce a confusing "Generating yearly summary..."
+    // response for unrelated pipeline commands.
+    if (!activePipelineId) {
+      return c.json({
+        response_type: 'ephemeral',
+        text: `❌ \`${payload.command}\` はパイプラインに登録されていません。\n登録済み: ${pipelineIds.join(', ')}\n\nPIPELINE_IDS 環境変数を確認してください。`,
+      });
+    }
   }
 
   // Check for user token (OAuth authorization)
@@ -236,7 +267,11 @@ slackRoutes.post('/slack/command', async (c) => {
   if (activePipelineId && pipelineRepo) {
     // === Pipeline path ===
     const pipeline = pipelineRepo.getById(activePipelineId);
-    const years = parsePipelineYears(payload.text);
+    // If the pipeline defines a fixed period, use years from that period;
+    // otherwise fall back to parsing years from the command text.
+    const years = pipeline.period
+      ? extractYearsFromPeriod(pipeline.period)
+      : parsePipelineYears(payload.text);
 
     // Post start message
     const startMessage = `🔄 *Running ${pipeline.description || payload.command}...*\n_Analyzing: ${years.join(', ')}_`;
@@ -255,7 +290,7 @@ slackRoutes.post('/slack/command', async (c) => {
       type: 'yearly',
       year: years[0],
       years,
-      pipelineId: activePipelineId!,
+      pipelineId: activePipelineId,
       userId,
       channelId: selfDmChannelId,
       threadTs,

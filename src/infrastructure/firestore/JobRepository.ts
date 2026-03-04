@@ -106,9 +106,6 @@ export class JobRepository {
       id: jobId,
       type: params.type,
       year: params.year,
-      years: params.years,
-      month: params.month,
-      pipelineId: params.pipelineId,
       userId: params.userId,
       channelId: params.channelId,
       threadTs: params.threadTs,
@@ -120,6 +117,11 @@ export class JobRepository {
       createdAt: now,
       updatedAt: now,
     };
+
+    // Optional fields: omit undefined to satisfy Firestore's strict type requirements
+    if (params.years !== undefined) job.years = params.years;
+    if (params.month !== undefined) job.month = params.month;
+    if (params.pipelineId !== undefined) job.pipelineId = params.pipelineId;
 
     await this.db
       .collection(this.jobsCollection)
@@ -185,6 +187,29 @@ export class JobRepository {
 
     await this.db.collection(this.jobsCollection).doc(jobId).update(updateData);
     console.log(`Job ${jobId} status updated to: ${status}`);
+  }
+
+  /**
+   * Atomically transition job status from 'processing' to 'posting'.
+   * Uses a Firestore transaction so only the first caller succeeds — subsequent
+   * callers (Pub/Sub retries or race-condition duplicates) get false and should skip.
+   *
+   * @returns true if this caller acquired the posting lock, false if already taken.
+   */
+  async tryTransitionToPosting(jobId: string): Promise<boolean> {
+    const jobRef = this.db.collection(this.jobsCollection).doc(jobId);
+
+    return this.db.runTransaction(async (transaction) => {
+      const jobDoc = await transaction.get(jobRef);
+      const status = jobDoc.data()?.status as JobStatus | undefined;
+
+      if (status !== 'processing') {
+        return false;
+      }
+
+      transaction.update(jobRef, { status: 'posting', updatedAt: Timestamp.now() });
+      return true;
+    });
   }
 
   /**
@@ -262,15 +287,19 @@ export class JobRepository {
   ): Promise<void> {
     const weekId = `week_${weekNumber.toString().padStart(2, '0')}`;
 
+    const updateData: Record<string, unknown> = {
+      status: update.status,
+      updatedAt: Timestamp.now(),
+    };
+    if (update.content !== undefined) updateData.content = update.content;
+    if (update.error !== undefined) updateData.error = update.error;
+
     await this.db
       .collection(this.jobsCollection)
       .doc(jobId)
       .collection(this.weeksSubcollection)
       .doc(weekId)
-      .update({
-        ...update,
-        updatedAt: Timestamp.now(),
-      });
+      .update(updateData);
 
     console.log(`Week ${weekNumber} for job ${jobId} updated to: ${update.status}`);
   }

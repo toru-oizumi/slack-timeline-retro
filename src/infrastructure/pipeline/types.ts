@@ -37,6 +37,13 @@ export const StageConfigSchema = z.object({
    * preceding stage's results regardless of this value.
    */
   inputSource: z.string().optional(),
+  /**
+   * Optional override for the section header posted to Slack before this stage's output.
+   * If set, replaces the auto-generated header (e.g. "📋 *2025年〜2026年 年次比較レポート*").
+   * Set to "" (empty string) to suppress the header entirely.
+   * If omitted, the header is generated automatically based on the stage unit.
+   */
+  header: z.string().optional(),
   prompt: StagePromptSchema,
 });
 export type StageConfig = z.infer<typeof StageConfigSchema>;
@@ -94,6 +101,35 @@ export const OutputConfigSchema = z.object({
 export type OutputConfig = z.infer<typeof OutputConfigSchema>;
 
 /**
+ * Optional date period to restrict pipeline processing to a specific range of months.
+ * When set, overrides year-based task generation in the orchestrator.
+ * Format: "YYYY-MM" (e.g. "2025-09")
+ */
+const validMonth = z
+  .string()
+  .regex(/^\d{4}-\d{2}$/, 'Expected format: YYYY-MM')
+  .refine(
+    (value) => {
+      const month = Number(value.split('-')[1]);
+      return Number.isInteger(month) && month >= 1 && month <= 12;
+    },
+    { message: 'Month must be between 01 and 12' },
+  );
+
+export const PeriodConfigSchema = z
+  .object({
+    /** First month inclusive (YYYY-MM) */
+    start: validMonth,
+    /** Last month inclusive (YYYY-MM) */
+    end: validMonth,
+  })
+  .refine(({ start, end }) => start <= end, {
+    message: 'start must be less than or equal to end',
+    path: ['end'],
+  });
+export type PeriodConfig = z.infer<typeof PeriodConfigSchema>;
+
+/**
  * Full pipeline configuration loaded from YAML
  */
 export const PipelineConfigSchema = z
@@ -101,6 +137,8 @@ export const PipelineConfigSchema = z
     id: z.string().min(1),
     command: z.string().startsWith('/'),
     description: z.string(),
+    /** Optional fixed date range. When set, overrides year arguments from the slash command. */
+    period: PeriodConfigSchema.optional(),
     slackInput: SlackInputSchema,
     stages: z.array(StageConfigSchema).min(1),
     output: OutputConfigSchema,

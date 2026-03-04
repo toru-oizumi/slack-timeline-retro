@@ -13,6 +13,38 @@ export class StageUnitMapper {
   constructor(private readonly dateService: DateService) {}
 
   /**
+   * Return the atomic date ranges for the given unit within the specified period.
+   * - week  → all weeks overlapping the period
+   * - month → all calendar months in the period
+   * - year  → one range per calendar year covered by the period
+   * @param unit  - Stage unit (week | month | year)
+   * @param start - First month inclusive, format "YYYY-MM"
+   * @param end   - Last month inclusive, format "YYYY-MM"
+   */
+  getRangesForPeriod(unit: StageUnit, start: string, end: string): DateRange[] {
+    switch (unit) {
+      case 'week':
+        return this.dateService.getWeeksInPeriod(start, end);
+      case 'month':
+        return this.dateService.getMonthsInPeriod(start, end);
+      case 'year': {
+        const startYear = Number.parseInt(start.split('-')[0], 10);
+        const endYear = Number.parseInt(end.split('-')[0], 10);
+        const ranges: DateRange[] = [];
+        for (let y = startYear; y <= endYear; y++) {
+          ranges.push(this.dateService.getYearRange(y));
+        }
+        return ranges;
+      }
+      case 'day':
+      case 'quarter':
+        throw new Error(`StageUnit "${unit}" is not yet supported for period ranges`);
+      case 'all_years':
+        throw new Error(`StageUnit "all_years" cannot be mapped to date ranges`);
+    }
+  }
+
+  /**
    * Return the atomic date ranges for the given unit and year.
    * - week  → all ISO weeks in the year
    * - month → all 12 calendar months
