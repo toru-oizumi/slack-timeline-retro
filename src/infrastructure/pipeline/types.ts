@@ -105,12 +105,28 @@ export type OutputConfig = z.infer<typeof OutputConfigSchema>;
  * When set, overrides year-based task generation in the orchestrator.
  * Format: "YYYY-MM" (e.g. "2025-09")
  */
-export const PeriodConfigSchema = z.object({
-  /** First month inclusive (YYYY-MM) */
-  start: z.string().regex(/^\d{4}-\d{2}$/, 'Expected format: YYYY-MM'),
-  /** Last month inclusive (YYYY-MM) */
-  end: z.string().regex(/^\d{4}-\d{2}$/, 'Expected format: YYYY-MM'),
-});
+const validMonth = z
+  .string()
+  .regex(/^\d{4}-\d{2}$/, 'Expected format: YYYY-MM')
+  .refine(
+    (value) => {
+      const month = Number(value.split('-')[1]);
+      return Number.isInteger(month) && month >= 1 && month <= 12;
+    },
+    { message: 'Month must be between 01 and 12' },
+  );
+
+export const PeriodConfigSchema = z
+  .object({
+    /** First month inclusive (YYYY-MM) */
+    start: validMonth,
+    /** Last month inclusive (YYYY-MM) */
+    end: validMonth,
+  })
+  .refine(({ start, end }) => start <= end, {
+    message: 'start must be less than or equal to end',
+    path: ['end'],
+  });
 export type PeriodConfig = z.infer<typeof PeriodConfigSchema>;
 
 /**

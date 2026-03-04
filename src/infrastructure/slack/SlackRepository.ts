@@ -326,7 +326,7 @@ export class SlackRepository implements ISlackRepository {
    * Update an existing message in place (e.g. for progress updates)
    */
   async updateMessage(channelId: string, ts: string, text: string): Promise<void> {
-    const response = await this.userClient.chat.update({ channel: channelId, ts, text, mrkdwn: true });
+    const response = await this.botClient.chat.update({ channel: channelId, ts, text });
     if (!response.ok) {
       throw new SlackAPIError('chat.update failed', response.error);
     }
