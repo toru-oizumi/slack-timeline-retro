@@ -323,6 +323,16 @@ export class SlackRepository implements ISlackRepository {
   }
 
   /**
+   * Update an existing message in place (e.g. for progress updates)
+   */
+  async updateMessage(channelId: string, ts: string, text: string): Promise<void> {
+    const response = await this.userClient.chat.update({ channel: channelId, ts, text, mrkdwn: true });
+    if (!response.ok) {
+      throw new SlackAPIError('chat.update failed', response.error);
+    }
+  }
+
+  /**
    * Post a start message to create a new thread
    * Returns the message ts which can be used as thread_ts for subsequent replies
    */

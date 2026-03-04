@@ -188,7 +188,8 @@ deploy_cloud_run() {
     --memory 512Mi
     --cpu 1
     --min-instances 0
-    --max-instances 10
+    --max-instances 2
+    --concurrency 1
     --timeout 3600
     --no-cpu-throttling
     --set-secrets "$SECRETS"

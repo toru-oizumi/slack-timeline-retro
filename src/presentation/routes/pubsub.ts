@@ -421,6 +421,23 @@ pubsubRoutes.post('/pubsub/week-worker', async (c) => {
     // Increment completed tasks counter
     const completedCount = await jobRepository.incrementCompletedTasks(job.id);
 
+    // Update start message at each 10% milestone
+    const milestone = Math.ceil(job.totalTasks / 10);
+    const isAtMilestone =
+      milestone > 0 &&
+      Math.floor(completedCount / milestone) > Math.floor((completedCount - 1) / milestone);
+    if (isAtMilestone && completedCount < job.totalTasks) {
+      const pct = Math.round((completedCount / job.totalTasks) * 100);
+      const yearsLabel = job.years?.join(', ') ?? String(job.year);
+      const label = job.pipelineId ?? 'job';
+      const progressText = `🔄 *Running ${label}...* (${completedCount}/${job.totalTasks} ⏳ ${pct}%)\n_Analyzing: ${yearsLabel}_`;
+      try {
+        await slackRepository.updateMessage(job.channelId, job.threadTs, progressText);
+      } catch (err) {
+        console.error('Progress update failed:', err instanceof Error ? err.message : String(err));
+      }
+    }
+
     // Check if all tasks are complete
     if (completedCount >= job.totalTasks) {
       console.log(`All ${job.totalTasks} tasks complete for job ${job.id}, triggering posting`);
